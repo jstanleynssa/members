@@ -41,7 +41,7 @@ export async function getServerSideProps(context) {
     .eq('email', session.user.email)
     .eq('status', 'pending')
     .eq('source', 'manual')
-    .lt('submitted_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
+    .lt('submitted_at', new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString())
 
   // Get member profile
   const { data: member } = await supabaseServer
