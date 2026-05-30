@@ -116,7 +116,7 @@ export default function CESubmit({ member, userEmail }) {
       {/* Header */}
       <div style={{ background: NSSA.dark, color: 'white', padding: '0 2rem' }}>
         <div style={{ maxWidth: '900px', margin: '0 auto', display: 'flex', alignItems: 'center', height: '60px', gap: '16px' }}>
-          <Link href="/dashboard"><a style={{ color: 'rgba(255,255,255,0.7)', fontSize: '13px', textDecoration: 'none' }}>← Back to Dashboard</a></Link>
+          <Link href="/dashboard" style={{ color: 'rgba(255,255,255,0.7)', fontSize: '13px', textDecoration: 'none' }}>← Back to Dashboard</Link>
           <span style={{ fontWeight: 700, fontSize: '15px', letterSpacing: '0.05em' }}>Submit CE Activity</span>
         </div>
       </div>
