@@ -50,20 +50,21 @@ export async function getServerSideProps(context) {
     .eq('email', session.user.email)
     .single()
 
-  // Get ALL CE submissions for current year (pending + approved)
-  const { data: submissions } = await supabaseServer
+  // Get ALL submissions across all years for history
+  const { data: allSubmissions } = await supabaseServer
     .from('ce_submissions')
     .select('*')
     .eq('email', session.user.email)
-    .eq('year', currentYear)
     .order('completion_date', { ascending: false })
 
-  // Only count APPROVED submissions toward totals
-  const approved = (submissions || []).filter(s => s.status === 'approved')
-  const nssaHours = approved
+  const submissions = allSubmissions || []
+
+  // Current year approved totals for CE cards
+  const currentApproved = submissions.filter(s => s.status === 'approved' && s.year === currentYear)
+  const nssaHours = currentApproved
     .filter(s => s.designation === 'NSSA' || s.designation === 'both')
     .reduce((sum, s) => sum + Number(s.hours_earned), 0)
-  const irmaaHours = approved
+  const irmaaHours = currentApproved
     .filter(s => s.designation === 'IRMAA' || s.designation === 'both')
     .reduce((sum, s) => sum + Number(s.hours_earned), 0)
 
@@ -72,24 +73,30 @@ export async function getServerSideProps(context) {
   const nssaExempt = certYear(member?.nssa_cert_date) === currentYear
   const irmaaExempt = certYear(member?.irmaa_cert_date) === currentYear
 
+  // Available years for history filter
+  const years = [...new Set(submissions.map(s => s.year))].sort((a, b) => b - a)
+  if (!years.includes(currentYear)) years.unshift(currentYear)
+
   return {
     props: {
       member: member || null,
-      submissions: submissions || [],
+      submissions,
       nssaHours,
       irmaaHours,
       nssaExempt,
       irmaaExempt,
       currentYear,
+      availableYears: years,
       userEmail: session.user.email
     }
   }
 }
 
-export default function Dashboard({ member, submissions, nssaHours, irmaaHours, nssaExempt, irmaaExempt, currentYear, userEmail }) {
+export default function Dashboard({ member, submissions, nssaHours, irmaaHours, nssaExempt, irmaaExempt, currentYear, availableYears, userEmail }) {
   const days = daysLeftInYear()
   const firstName = member?.first_name || userEmail.split('@')[0]
   const [loggingOut, setLoggingOut] = useState(false)
+  const [selectedYear, setSelectedYear] = useState(currentYear)
 
   async function handleLogout() {
     setLoggingOut(true)
@@ -100,44 +107,47 @@ export default function Dashboard({ member, submissions, nssaHours, irmaaHours, 
   const nssaMet = nssaExempt || nssaHours >= 4
   const irmaaMet = irmaaExempt || irmaaHours >= 4
 
+  // Filter submissions for the selected year
+  const yearSubmissions = submissions.filter(s => s.year === selectedYear)
+
   function StatusBadge({ submission }) {
-    if (submission.source === 'zoom_auto') {
-      return <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', background: '#f0fdf4', color: '#15803d' }}>✓ Auto (Zoom)</span>
-    }
-    if (submission.status === 'approved') {
-      return <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', background: '#f0fdf4', color: '#15803d' }}>✓ Approved</span>
-    }
-    if (submission.status === 'pending') {
-      return <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', background: '#fef9c3', color: '#854d0e', border: '1px solid #fde68a' }}>⏳ Pending</span>
-    }
-    if (submission.status === 'rejected') {
-      return <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', background: '#fef2f2', color: '#dc2626' }}>✗ Rejected</span>
-    }
+    if (submission.source === 'zoom_auto') return (
+      <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', background: '#f0fdf4', color: '#15803d' }}>✓ Auto (Zoom)</span>
+    )
+    if (submission.status === 'approved') return (
+      <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', background: '#f0fdf4', color: '#15803d' }}>✓ Approved</span>
+    )
+    if (submission.status === 'pending') return (
+      <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', background: '#fef9c3', color: '#854d0e', border: '1px solid #fde68a' }}>⏳ Pending</span>
+    )
+    if (submission.status === 'rejected') return (
+      <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', background: '#fef2f2', color: '#dc2626' }}>✗ Rejected</span>
+    )
     return null
   }
 
   function DesignationBadge({ designation }) {
-    const isNssa = designation === 'NSSA'
-    const isIrmaa = designation === 'IRMAA'
     return (
       <span style={{
         fontSize: '11px', padding: '2px 8px', borderRadius: '4px',
-        background: isNssa ? '#eff6ff' : isIrmaa ? '#fef2f2' : '#f0fdf4',
-        color: isNssa ? NSSA.medium : isIrmaa ? IRMAA.medium : '#15803d'
+        background: designation === 'NSSA' ? '#eff6ff' : designation === 'IRMAA' ? '#fef2f2' : '#f0fdf4',
+        color: designation === 'NSSA' ? NSSA.medium : designation === 'IRMAA' ? IRMAA.medium : '#15803d'
       }}>
         {designation === 'both' ? 'NSSA + IRMAA' : designation}
       </span>
     )
   }
 
+  const sectionLabel = { fontSize: '11px', fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '10px' }
+
   return (
     <div style={{ padding: '2rem', maxWidth: '1000px', margin: '0 auto', fontFamily: 'system-ui, sans-serif' }}>
 
-      {/* Header — matches partner dashboard style */}
+      {/* Header */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '2rem' }}>
         <div>
-          <h1 style={{ fontSize: '1.5rem', fontWeight: 600, marginBottom: '4px' }}>Welcome back, {firstName}</h1>
-          <p style={{ color: '#6b7280', fontSize: '14px' }}>{currentYear} CE Requirement — {days} days remaining in the year</p>
+          <h1 style={{ fontSize: '1.5rem', fontWeight: 700, marginBottom: '2px', color: '#111' }}>Member Dashboard</h1>
+          <p style={{ color: '#6b7280', fontSize: '14px' }}>Welcome back, {firstName}</p>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '10px' }}>
           <img src="/nssa-irmaa-logos.png" alt="NSSA and IRMAACP logos" style={{ height: '50px', width: 'auto' }} />
@@ -154,131 +164,190 @@ export default function Dashboard({ member, submissions, nssaHours, irmaaHours, 
         </div>
       </div>
 
-      {/* CE Status Cards — always 2 columns, CTA if not enrolled */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '2rem' }}>
-
-        {/* NSSA — left card */}
-        {member?.nssa_certified ? (
-          <div style={{ background: 'white', borderRadius: '10px', padding: '1.5rem', border: '1px solid #e5e7eb', borderTop: `4px solid ${NSSA.medium}` }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
-              <div>
-                <p style={{ fontSize: '13px', color: '#6b7280', marginBottom: '2px' }}>NSSA® CE Requirement</p>
-                <p style={{ fontSize: '28px', fontWeight: 700, color: NSSA.dark }}>
-                  {nssaExempt ? '4' : nssaHours} <span style={{ fontSize: '16px', fontWeight: 400, color: '#9ca3af' }}>/ 4 hrs</span>
-                </p>
-              </div>
-              <span style={{
-                fontSize: '12px', padding: '3px 10px', borderRadius: '99px', fontWeight: 500,
-                background: nssaMet ? '#f0fdf4' : '#fef9c3',
-                color: nssaMet ? '#15803d' : '#854d0e',
-                border: `1px solid ${nssaMet ? '#bbf7d0' : '#fde68a'}`
-              }}>
-                {nssaMet ? '✓ Requirement met' : 'In progress'}
-              </span>
-            </div>
-            {nssaExempt ? (
-              <p style={{ fontSize: '12px', color: '#6b7280', background: '#f0fdf4', padding: '8px 12px', borderRadius: '6px', border: '1px solid #bbf7d0' }}>
-                ✓ CE requirement waived for {currentYear} — you earned your NSSA® designation this year.
-              </p>
-            ) : (
-              <CEProgressBar completed={nssaHours} required={4} color={NSSA.medium} />
-            )}
-          </div>
-        ) : (
-          <div style={{ background: 'white', borderRadius: '10px', padding: '1.5rem', border: '1px solid #e5e7eb', borderTop: `4px solid ${NSSA.light}`, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-            <div>
-              <p style={{ fontSize: '13px', fontWeight: 600, color: NSSA.dark, marginBottom: '6px' }}>NSSA® Social Security</p>
-              <p style={{ fontSize: '13px', color: '#6b7280', lineHeight: '1.5', marginBottom: '1.25rem' }}>
-                Earn your NSSA® certification and become a trusted expert in Social Security planning. As an IRMAACP™ holder, you qualify for a 50% member discount.
-              </p>
-            </div>
-            <a href="https://www.nssapros.com/offers/vwMC6viE/checkout" target="_blank" rel="noopener noreferrer" style={{
-              display: 'block', textAlign: 'center', padding: '10px 16px',
-              background: NSSA.dark, color: 'white', borderRadius: '8px',
-              textDecoration: 'none', fontSize: '13px', fontWeight: 600
-            }}>
-              Enroll in NSSA® — 50% Off →
-            </a>
-          </div>
-        )}
-
-        {/* IRMAA — right card */}
-        {member?.irmaa_certified ? (
-          <div style={{ background: 'white', borderRadius: '10px', padding: '1.5rem', border: '1px solid #e5e7eb', borderTop: `4px solid ${IRMAA.medium}` }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
-              <div>
-                <p style={{ fontSize: '13px', color: '#6b7280', marginBottom: '2px' }}>IRMAACP™ CE Requirement</p>
-                <p style={{ fontSize: '28px', fontWeight: 700, color: IRMAA.dark }}>
-                  {irmaaExempt ? '4' : irmaaHours} <span style={{ fontSize: '16px', fontWeight: 400, color: '#9ca3af' }}>/ 4 hrs</span>
-                </p>
-              </div>
-              <span style={{
-                fontSize: '12px', padding: '3px 10px', borderRadius: '99px', fontWeight: 500,
-                background: irmaaMet ? '#f0fdf4' : '#fef9c3',
-                color: irmaaMet ? '#15803d' : '#854d0e',
-                border: `1px solid ${irmaaMet ? '#bbf7d0' : '#fde68a'}`
-              }}>
-                {irmaaMet ? '✓ Requirement met' : 'In progress'}
-              </span>
-            </div>
-            {irmaaExempt ? (
-              <p style={{ fontSize: '12px', color: '#6b7280', background: '#f0fdf4', padding: '8px 12px', borderRadius: '6px', border: '1px solid #bbf7d0' }}>
-                ✓ CE requirement waived for {currentYear} — you earned your IRMAACP™ designation this year.
-              </p>
-            ) : (
-              <CEProgressBar completed={irmaaHours} required={4} color={IRMAA.medium} />
-            )}
-          </div>
-        ) : (
-          <div style={{ background: 'white', borderRadius: '10px', padding: '1.5rem', border: '1px solid #e5e7eb', borderTop: `4px solid ${IRMAA.light}`, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-            <div>
-              <p style={{ fontSize: '13px', fontWeight: 600, color: IRMAA.dark, marginBottom: '6px' }}>IRMAACP™ Medicare & IRMAA</p>
-              <p style={{ fontSize: '13px', color: '#6b7280', lineHeight: '1.5', marginBottom: '1.25rem' }}>
-                Add the IRMAACP™ designation and expand your expertise into Medicare and IRMAA planning. As an NSSA® holder, you qualify for a 50% member discount.
-              </p>
-            </div>
-            <a href="https://www.nssapros.com/offers/mKoPXoDn/checkout" target="_blank" rel="noopener noreferrer" style={{
-              display: 'block', textAlign: 'center', padding: '10px 16px',
-              background: IRMAA.dark, color: 'white', borderRadius: '8px',
-              textDecoration: 'none', fontSize: '13px', fontWeight: 600
-            }}>
-              Enroll in IRMAACP™ — 50% Off →
-            </a>
-          </div>
-        )}
-      </div>
-
-      {/* Submit CE button */}
+      {/* CE Requirement Section */}
       <div style={{ marginBottom: '2rem' }}>
-        <Link href="/ce/submit" style={{
-          display: 'inline-block', padding: '10px 24px', background: NSSA.dark,
-          color: 'white', borderRadius: '8px', textDecoration: 'none', fontWeight: 500, fontSize: '14px'
-        }}>
-          + Submit CE Activity
-        </Link>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+          <p style={sectionLabel}>CE Requirements — {currentYear}</p>
+          <span style={{
+            fontSize: '12px', padding: '3px 12px', borderRadius: '99px',
+            background: days <= 60 ? '#fef2f2' : '#f0fdf4',
+            color: days <= 60 ? '#dc2626' : '#15803d',
+            border: `1px solid ${days <= 60 ? '#fecaca' : '#bbf7d0'}`,
+            fontWeight: 500
+          }}>
+            {days} days remaining in {currentYear}
+          </span>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+
+          {/* NSSA card */}
+          {member?.nssa_certified ? (
+            <div style={{ background: 'white', borderRadius: '10px', padding: '1.5rem', border: '1px solid #e5e7eb', borderTop: `4px solid ${NSSA.medium}` }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
+                <div>
+                  <p style={{ fontSize: '13px', color: '#6b7280', marginBottom: '2px' }}>NSSA® CE Requirement</p>
+                  <p style={{ fontSize: '28px', fontWeight: 700, color: NSSA.dark }}>
+                    {nssaExempt ? '4' : nssaHours}
+                    <span style={{ fontSize: '16px', fontWeight: 400, color: '#9ca3af' }}> / 4 hrs</span>
+                  </p>
+                </div>
+                <span style={{
+                  fontSize: '12px', padding: '3px 10px', borderRadius: '99px', fontWeight: 500,
+                  background: nssaMet ? '#f0fdf4' : '#fef9c3',
+                  color: nssaMet ? '#15803d' : '#854d0e',
+                  border: `1px solid ${nssaMet ? '#bbf7d0' : '#fde68a'}`
+                }}>
+                  {nssaMet ? '✓ Requirement met' : 'In progress'}
+                </span>
+              </div>
+              {nssaExempt ? (
+                <p style={{ fontSize: '12px', color: '#6b7280', background: '#f0fdf4', padding: '8px 12px', borderRadius: '6px', border: '1px solid #bbf7d0' }}>
+                  ✓ CE requirement waived for {currentYear} — you earned your NSSA® designation this year.
+                </p>
+              ) : (
+                <CEProgressBar completed={nssaHours} required={4} color={NSSA.medium} />
+              )}
+            </div>
+          ) : (
+            <div style={{ background: 'white', borderRadius: '10px', padding: '1.5rem', border: '1px solid #e5e7eb', borderTop: `4px solid ${NSSA.light}`, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+              <div>
+                <p style={{ fontSize: '13px', fontWeight: 600, color: NSSA.dark, marginBottom: '6px' }}>NSSA® Social Security</p>
+                <p style={{ fontSize: '13px', color: '#6b7280', lineHeight: '1.5', marginBottom: '1.25rem' }}>
+                  Earn your NSSA® certification and become a trusted expert in Social Security planning. As an IRMAACP™ holder, you qualify for a 50% member discount.
+                </p>
+              </div>
+              <a href="https://www.nssapros.com/offers/vwMC6viE/checkout" target="_blank" rel="noopener noreferrer" style={{
+                display: 'block', textAlign: 'center', padding: '10px 16px',
+                background: NSSA.dark, color: 'white', borderRadius: '8px',
+                textDecoration: 'none', fontSize: '13px', fontWeight: 600
+              }}>
+                Enroll in NSSA® — 50% Off →
+              </a>
+            </div>
+          )}
+
+          {/* IRMAA card */}
+          {member?.irmaa_certified ? (
+            <div style={{ background: 'white', borderRadius: '10px', padding: '1.5rem', border: '1px solid #e5e7eb', borderTop: `4px solid ${IRMAA.medium}` }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
+                <div>
+                  <p style={{ fontSize: '13px', color: '#6b7280', marginBottom: '2px' }}>IRMAACP™ CE Requirement</p>
+                  <p style={{ fontSize: '28px', fontWeight: 700, color: IRMAA.dark }}>
+                    {irmaaExempt ? '4' : irmaaHours}
+                    <span style={{ fontSize: '16px', fontWeight: 400, color: '#9ca3af' }}> / 4 hrs</span>
+                  </p>
+                </div>
+                <span style={{
+                  fontSize: '12px', padding: '3px 10px', borderRadius: '99px', fontWeight: 500,
+                  background: irmaaMet ? '#f0fdf4' : '#fef9c3',
+                  color: irmaaMet ? '#15803d' : '#854d0e',
+                  border: `1px solid ${irmaaMet ? '#bbf7d0' : '#fde68a'}`
+                }}>
+                  {irmaaMet ? '✓ Requirement met' : 'In progress'}
+                </span>
+              </div>
+              {irmaaExempt ? (
+                <p style={{ fontSize: '12px', color: '#6b7280', background: '#f0fdf4', padding: '8px 12px', borderRadius: '6px', border: '1px solid #bbf7d0' }}>
+                  ✓ CE requirement waived for {currentYear} — you earned your IRMAACP™ designation this year.
+                </p>
+              ) : (
+                <CEProgressBar completed={irmaaHours} required={4} color={IRMAA.medium} />
+              )}
+            </div>
+          ) : (
+            <div style={{ background: 'white', borderRadius: '10px', padding: '1.5rem', border: '1px solid #e5e7eb', borderTop: `4px solid ${IRMAA.light}`, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+              <div>
+                <p style={{ fontSize: '13px', fontWeight: 600, color: IRMAA.dark, marginBottom: '6px' }}>IRMAACP™ Medicare & IRMAA</p>
+                <p style={{ fontSize: '13px', color: '#6b7280', lineHeight: '1.5', marginBottom: '1.25rem' }}>
+                  Add the IRMAACP™ designation and expand your expertise into Medicare and IRMAA planning. As an NSSA® holder, you qualify for a 50% member discount.
+                </p>
+              </div>
+              <a href="https://www.nssapros.com/offers/mKoPXoDn/checkout" target="_blank" rel="noopener noreferrer" style={{
+                display: 'block', textAlign: 'center', padding: '10px 16px',
+                background: IRMAA.dark, color: 'white', borderRadius: '8px',
+                textDecoration: 'none', fontSize: '13px', fontWeight: 600
+              }}>
+                Enroll in IRMAACP™ — 50% Off →
+              </a>
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* Submission history */}
-      <div style={{ background: 'white', borderRadius: '10px', border: '1px solid #e5e7eb', overflow: 'hidden' }}>
-        <div style={{ padding: '1rem 1.5rem', borderBottom: '1px solid #f3f4f6', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <h2 style={{ fontSize: '14px', fontWeight: 600, color: '#374151' }}>{currentYear} CE Submissions</h2>
-          <span style={{ fontSize: '12px', color: '#9ca3af' }}>Pending submissions are reviewed within 48 hours</span>
+      {/* Member Profile Section */}
+      <div style={{ marginBottom: '2rem' }}>
+        <p style={sectionLabel}>Member Profile</p>
+        <div style={{ background: 'white', borderRadius: '10px', border: '1px solid #e5e7eb', padding: '1.25rem 1.5rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
+              <div style={{ width: 44, height: 44, borderRadius: '50%', background: NSSA.dark, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 700, fontSize: '16px', flexShrink: 0 }}>
+                {(member?.first_name?.[0] || userEmail[0]).toUpperCase()}
+              </div>
+              <div>
+                <p style={{ fontWeight: 600, fontSize: '14px', marginBottom: '2px' }}>
+                  {member?.first_name && member?.last_name ? `${member.first_name} ${member.last_name}` : userEmail}
+                </p>
+                <p style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>{userEmail}</p>
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  {member?.nssa_certified && (
+                    <span style={{ fontSize: '11px', padding: '1px 8px', borderRadius: '4px', background: '#eff6ff', color: NSSA.medium, border: `1px solid ${NSSA.light}` }}>NSSA® Certified</span>
+                  )}
+                  {member?.irmaa_certified && (
+                    <span style={{ fontSize: '11px', padding: '1px 8px', borderRadius: '4px', background: '#fef2f2', color: IRMAA.medium, border: `1px solid ${IRMAA.light}` }}>IRMAACP™ Certified</span>
+                  )}
+                </div>
+              </div>
+            </div>
+            <span style={{ fontSize: '12px', color: '#9ca3af', fontStyle: 'italic' }}>Profile editing coming soon</span>
+          </div>
         </div>
-        {submissions.length === 0 ? (
+      </div>
+
+      {/* CE Submissions */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+        <p style={sectionLabel}>CE Submission History</p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <Link href="/ce/submit" style={{
+            display: 'inline-block', padding: '7px 18px', background: NSSA.dark,
+            color: 'white', borderRadius: '6px', textDecoration: 'none', fontWeight: 500, fontSize: '13px'
+          }}>
+            + Submit CE Activity
+          </Link>
+          {availableYears.length > 1 && (
+            <select
+              value={selectedYear}
+              onChange={e => setSelectedYear(Number(e.target.value))}
+              style={{ fontSize: '13px', padding: '6px 10px', borderRadius: '6px', border: '1px solid #d1d5db', background: 'white' }}
+            >
+              {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
+            </select>
+          )}
+        </div>
+      </div>
+
+      <div style={{ background: 'white', borderRadius: '10px', border: '1px solid #e5e7eb', overflow: 'hidden' }}>
+        <div style={{ padding: '0.875rem 1.5rem', borderBottom: '1px solid #f3f4f6', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#f9fafb' }}>
+          <span style={{ fontSize: '13px', fontWeight: 500, color: '#374151' }}>{selectedYear} Submissions</span>
+          <span style={{ fontSize: '12px', color: '#9ca3af' }}>
+            {selectedYear === currentYear ? 'Pending submissions are reviewed within 48 hours' : `Historical record — ${selectedYear}`}
+          </span>
+        </div>
+        {yearSubmissions.length === 0 ? (
           <div style={{ padding: '2rem', textAlign: 'center', color: '#9ca3af', fontSize: '13px' }}>
-            No CE submissions yet for {currentYear}.
+            No CE submissions for {selectedYear}.
           </div>
         ) : (
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ background: '#f9fafb' }}>
                 {['Date', 'Course Title', 'CE Type', 'Hours', 'Designation', 'Status', ''].map(h => (
-                  <th key={h} style={{ padding: '10px 16px', textAlign: 'left', fontSize: '12px', fontWeight: 500, color: '#6b7280' }}>{h}</th>
+                  <th key={h} style={{ padding: '10px 16px', textAlign: 'left', fontSize: '12px', fontWeight: 500, color: '#6b7280', borderBottom: '1px solid #f3f4f6' }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {submissions.map((s, i) => (
+              {yearSubmissions.map((s, i) => (
                 <tr key={s.id} style={{ borderTop: i > 0 ? '1px solid #f3f4f6' : 'none', opacity: s.status === 'rejected' ? 0.6 : 1 }}>
                   <td style={{ padding: '12px 16px', fontSize: '13px', whiteSpace: 'nowrap' }}>
                     {new Date(s.completion_date).toLocaleDateString()}
@@ -293,7 +362,7 @@ export default function Dashboard({ member, submissions, nssaHours, irmaaHours, 
                     <StatusBadge submission={s} />
                   </td>
                   <td style={{ padding: '12px 16px', fontSize: '13px' }}>
-                    {s.source !== 'zoom_auto' && s.status !== 'rejected' && (
+                    {s.source !== 'zoom_auto' && s.status !== 'rejected' && selectedYear === currentYear && (
                       <Link href={`/ce/edit/${s.id}`} style={{ fontSize: '12px', color: NSSA.medium, textDecoration: 'none' }}>
                         Edit
                       </Link>
@@ -305,6 +374,7 @@ export default function Dashboard({ member, submissions, nssaHours, irmaaHours, 
           </table>
         )}
       </div>
+
     </div>
   )
 }
