@@ -148,21 +148,23 @@ export default function CESubmit({ member, userEmail }) {
               </select>
             </div>
 
-            {/* Designation — only show dropdown if member holds both certs */}
-            <div style={group}>
-              <label style={label}>Applies toward</label>
-              {bothCerts ? (
-                <select name="designation" value={form.designation} onChange={handleChange} required style={{ ...inputStyle, background: 'white' }}>
-                  <option value="both">Both NSSA® and IRMAACP™</option>
-                  <option value="NSSA">NSSA® only</option>
-                  <option value="IRMAA">IRMAACP™ only</option>
-                </select>
-              ) : (
-                <div style={{ padding: '10px 12px', background: '#f9fafb', borderRadius: '6px', border: '1px solid #e5e7eb', fontSize: '14px', color: '#374151' }}>
-                  {onlyNssa ? 'NSSA® certification requirement' : 'IRMAACP™ certification requirement'}
-                </div>
-              )}
-            </div>
+{/* Designation — only show when member holds at least one cert */}
+{(member?.nssa_certified || member?.irmaa_certified) && (
+  <div style={group}>
+    <label style={label}>Applies toward</label>
+    {bothCerts ? (
+      <select name="designation" value={form.designation} onChange={handleChange} required style={{ ...inputStyle, background: 'white' }}>
+        <option value="both">Both NSSA® and IRMAACP™</option>
+        <option value="NSSA">NSSA® only</option>
+        <option value="IRMAA">IRMAACP™ only</option>
+      </select>
+    ) : (
+      <div style={{ padding: '10px 12px', background: '#f9fafb', borderRadius: '6px', border: '1px solid #e5e7eb', fontSize: '14px', color: '#374151' }}>
+        {onlyNssa ? 'NSSA® certification requirement' : 'IRMAACP™ certification requirement'}
+      </div>
+    )}
+  </div>
+)}
 
             <div style={group}>
               <label style={label}>Proof of Completion <span style={{ color: '#9ca3af', fontWeight: 400 }}>(optional but recommended)</span></label>
@@ -179,7 +181,7 @@ export default function CESubmit({ member, userEmail }) {
             </div>
 
             <div style={{ background: '#fef9c3', border: '1px solid #fde68a', borderRadius: '6px', padding: '10px 12px', fontSize: '12px', color: '#854d0e', marginBottom: '1.25rem' }}>
-              ⏳ Submissions are reviewed and automatically approved within 24 hours.
+            Submissions are reviewed within 48 hours.
             </div>
 
             {error && <p style={{ color: '#dc2626', fontSize: '13px', marginBottom: '1rem', padding: '10px', background: '#fef2f2', borderRadius: '6px', border: '1px solid #fecaca' }}>{error}</p>}
