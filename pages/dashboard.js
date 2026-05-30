@@ -172,14 +172,12 @@ export default function Dashboard({ member, submissions, nssaHours, irmaaHours, 
 
         {/* Submit CE button */}
         <div style={{ marginBottom: '2rem' }}>
-          <Link href="/ce/submit">
-            <a style={{
-              display: 'inline-block', padding: '10px 24px', background: NSSA.dark,
-              color: 'white', borderRadius: '8px', textDecoration: 'none', fontWeight: 500, fontSize: '14px'
-            }}>
-              + Submit CE Activity
-            </a>
-          </Link>
+   <Link href="/ce/submit" style={{
+  display: 'inline-block', padding: '10px 24px', background: NSSA.dark,
+  color: 'white', borderRadius: '8px', textDecoration: 'none', fontWeight: 500, fontSize: '14px'
+}}>
+  + Submit CE Activity
+</Link>
         </div>
 
         {/* Submission history */}
