@@ -134,26 +134,29 @@ export default function Dashboard({ member, submissions, nssaHours, irmaaHours, 
 
   return (
     <div style={{ minHeight: '100vh', background: '#f5f5f5', fontFamily: 'system-ui, sans-serif' }}>
-      {/* Header */}
-      <div style={{ background: NSSA.dark, color: 'white', padding: '0 2rem' }}>
-        <div style={{ maxWidth: '900px', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: '60px' }}>
-          <span style={{ fontWeight: 700, fontSize: '15px', letterSpacing: '0.05em' }}>NSSA Member Portal</span>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-            <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.75)' }}>{userEmail}</span>
-            <button onClick={handleLogout} style={{ fontSize: '12px', padding: '4px 12px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.3)', background: 'transparent', color: 'white', cursor: 'pointer' }}>
-              Sign out
-            </button>
-          </div>
-        </div>
-      </div>
+{/* Header */}
+<div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
+  <div>
+    <h1 style={{ fontSize: '1.5rem', fontWeight: 600, marginBottom: '4px' }}>Welcome back, {firstName}</h1>
+    <p style={{ color: '#6b7280', fontSize: '14px' }}>{currentYear} CE Requirement — {days} days remaining in the year</p>
+  </div>
+  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '10px' }}>
+    <img src="/nssa-irmaa-logos.png" alt="NSSA and IRMAACP logos" style={{ height: '50px', width: 'auto' }} />
+    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+      <span style={{ fontSize: '12px', color: '#6b7280' }}>{userEmail}</span>
+      <button onClick={handleLogout} disabled={loggingOut} style={{
+        fontSize: '12px', padding: '4px 12px', borderRadius: '6px',
+        border: '1px solid #d1d5db', background: 'white', color: '#374151',
+        cursor: loggingOut ? 'not-allowed' : 'pointer', opacity: loggingOut ? 0.6 : 1
+      }}>
+        {loggingOut ? 'Signing out...' : 'Sign out'}
+      </button>
+    </div>
+  </div>
+</div>
 
-      <div style={{ maxWidth: '900px', margin: '0 auto', padding: '2rem' }}>
+<div style={{ padding: '2rem', maxWidth: '1400px', margin: '0 auto', fontFamily: 'system-ui, sans-serif' }}>
 
-        {/* Welcome */}
-        <div style={{ marginBottom: '2rem' }}>
-          <h1 style={{ fontSize: '1.5rem', fontWeight: 600, marginBottom: '4px' }}>Welcome back, {firstName}</h1>
-          <p style={{ color: '#6b7280', fontSize: '14px' }}>{currentYear} CE Requirement — {days} days remaining in the year</p>
-        </div>
 
         {/* CE Status Cards — always 2 columns, CTA if not enrolled */}
 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '2rem' }}>
