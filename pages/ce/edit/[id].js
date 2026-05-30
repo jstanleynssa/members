@@ -87,13 +87,10 @@ export default function EditSubmission({ submission, member, userEmail }) {
 
   return (
     <div style={{ minHeight: '100vh', background: '#f5f5f5', fontFamily: 'system-ui, sans-serif' }}>
-      <div style={{ background: NSSA.dark, color: 'white', padding: '0 2rem' }}>
-        <div style={{ maxWidth: '900px', margin: '0 auto', display: 'flex', alignItems: 'center', height: '60px', gap: '16px' }}>
-          <Link href="/dashboard" style={{ color: 'rgba(255,255,255,0.7)', fontSize: '13px', textDecoration: 'none' }}>← Back to Dashboard</Link>
-          <span style={{ fontWeight: 700, fontSize: '15px', letterSpacing: '0.05em' }}>Edit CE Submission</span>
-        </div>
-      </div>
-
+     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem', paddingBottom: '1rem', borderBottom: '1px solid #e5e7eb' }}>
+  <Link href="/dashboard" style={{ fontSize: '13px', color: NSSA.medium, textDecoration: 'none', fontWeight: 500 }}>← Back to Dashboard</Link>
+  <img src="/nssa-irmaa-logos.png" alt="NSSA and IRMAACP logos" style={{ height: '40px', width: 'auto' }} />
+</div>
       <div style={{ maxWidth: '600px', margin: '2rem auto', padding: '0 1rem' }}>
         <div style={{ background: 'white', borderRadius: '10px', padding: '2rem', border: '1px solid #e5e7eb' }}>
           <h1 style={{ fontSize: '1.2rem', fontWeight: 600, marginBottom: '0.25rem' }}>Edit CE Activity</h1>
