@@ -40,7 +40,7 @@ export async function getServerSideProps(context) {
   }
   const members = allMembers
 
-  // Fetch CE hours aggregated by email for selected year
+  // Fetch CE hours for selected year
   const { data: ceData } = await supabaseAdmin
     .from('ce_submissions')
     .select('email, designation, hours_earned, completion_date')
@@ -188,12 +188,13 @@ export default function AdminMembers({ rows, selectedYear, availableYears, curre
 
     list.sort((a, b) => {
       let av, bv
-     if (sortCol === 'firstName')       { av = a.firstName.toLowerCase(); bv = b.firstName.toLowerCase() }
-else if (sortCol === 'lastName')   { av = a.lastName.toLowerCase();  bv = b.lastName.toLowerCase() }
-      else if (sortCol === 'nssaHours')  { av = a.nssaHours;  bv = b.nssaHours }
-      else if (sortCol === 'irmaaHours') { av = a.irmaaHours; bv = b.irmaaHours }
-      else if (sortCol === 'lastDate')   { av = a.lastDate || ''; bv = b.lastDate || '' }
-      else if (sortCol === 'state')      { av = a.state.toLowerCase(); bv = b.state.toLowerCase() }
+      if (sortCol === 'firstName')       { av = a.firstName.toLowerCase(); bv = b.firstName.toLowerCase() }
+      else if (sortCol === 'lastName')   { av = a.lastName.toLowerCase();  bv = b.lastName.toLowerCase() }
+      else if (sortCol === 'email')      { av = a.email.toLowerCase();     bv = b.email.toLowerCase() }
+      else if (sortCol === 'state')      { av = a.state.toLowerCase();     bv = b.state.toLowerCase() }
+      else if (sortCol === 'nssaHours')  { av = a.nssaHours;               bv = b.nssaHours }
+      else if (sortCol === 'irmaaHours') { av = a.irmaaHours;              bv = b.irmaaHours }
+      else if (sortCol === 'lastDate')   { av = a.lastDate || '';           bv = b.lastDate || '' }
       else { av = a[sortCol] || ''; bv = b[sortCol] || '' }
       if (av < bv) return sortDir === 'asc' ? -1 : 1
       if (av > bv) return sortDir === 'asc' ? 1 : -1
@@ -205,7 +206,6 @@ else if (sortCol === 'lastName')   { av = a.lastName.toLowerCase();  bv = b.last
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE)
   const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
 
-  // KPI stats from active members only
   const activeRows = rows.filter(r => r.isActive)
   const nssaMembers = activeRows.filter(r => r.nssaCertified)
   const irmaaMembers = activeRows.filter(r => r.irmaaCertified)
@@ -319,8 +319,9 @@ else if (sortCol === 'lastName')   { av = a.lastName.toLowerCase();  bv = b.last
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr>
-              <th style={thStyle('firstName')} onClick={() => handleSort('firstName')}>Name <SortIcon col="firstName" /></th>
+              <th style={thStyle('firstName')} onClick={() => handleSort('firstName')}>First Name <SortIcon col="firstName" /></th>
               <th style={thStyle('lastName')} onClick={() => handleSort('lastName')}>Last Name <SortIcon col="lastName" /></th>
+              <th style={thStyle('email')} onClick={() => handleSort('email')}>Email <SortIcon col="email" /></th>
               <th style={thStyle('state')} onClick={() => handleSort('state')}>State <SortIcon col="state" /></th>
               <th style={{ ...thStyle('nssaHours', NSSA.dark), minWidth: '110px' }} onClick={() => handleSort('nssaHours')}>NSSA Hours <SortIcon col="nssaHours" /></th>
               <th style={{ ...thStyle('nssaStatus', NSSA.dark) }}>NSSA Status</th>
@@ -333,15 +334,17 @@ else if (sortCol === 'lastName')   { av = a.lastName.toLowerCase();  bv = b.last
           <tbody>
             {paginated.map((r, i) => (
               <tr key={r.email} style={{ borderTop: i > 0 ? `1px solid ${GRAY.bg}` : 'none', background: !r.isActive ? '#fafafa' : 'white', opacity: r.isActive ? 1 : 0.6 }}>
-                <td style={td}>
-                  <p style={{ fontWeight: 500, fontSize: '13px', marginBottom: '1px' }}>
-                    {r.firstName} {r.lastName}
-                    {!r.isActive && <span style={{ fontSize: '10px', marginLeft: '6px', color: GRAY.text, background: GRAY.bg, padding: '1px 5px', borderRadius: '3px' }}>inactive</span>}
-                  </p>
-                  <p style={{ fontSize: '11px', color: GRAY.text }}>{r.email}</p>
-                  {r.company && <p style={{ fontSize: '11px', color: GRAY.text }}>{r.company}</p>}
+                <td style={{ ...td, fontWeight: 500 }}>
+                  {r.firstName || <span style={{ color: GRAY.text }}>—</span>}
                 </td>
-                <td style={{ ...td, fontWeight: 500 }}>{r.lastName || <span style={{ color: GRAY.text }}>—</span>}</td>
+                <td style={{ ...td, fontWeight: 500 }}>
+                  {r.lastName || <span style={{ color: GRAY.text }}>—</span>}
+                  {!r.isActive && <span style={{ fontSize: '10px', marginLeft: '6px', color: GRAY.text, background: GRAY.bg, padding: '1px 5px', borderRadius: '3px' }}>inactive</span>}
+                </td>
+                <td style={{ ...td, color: GRAY.text, fontSize: '12px' }}>
+                  {r.email}
+                  {r.company && <p style={{ fontSize: '11px', color: GRAY.text, margin: '1px 0 0' }}>{r.company}</p>}
+                </td>
                 <td style={{ ...td, color: GRAY.text, fontSize: '12px' }}>{r.state || '—'}</td>
                 <td style={td}>
                   {r.nssaCertified
@@ -371,7 +374,7 @@ else if (sortCol === 'lastName')   { av = a.lastName.toLowerCase();  bv = b.last
               </tr>
             ))}
             {paginated.length === 0 && (
-              <tr><td colSpan={9} style={{ padding: '2.5rem', textAlign: 'center', color: GRAY.text, fontSize: '13px' }}>
+              <tr><td colSpan={10} style={{ padding: '2.5rem', textAlign: 'center', color: GRAY.text, fontSize: '13px' }}>
                 No members match the current filters.
               </td></tr>
             )}
