@@ -3,7 +3,6 @@ import { createClient } from '@supabase/supabase-js'
 const MIN_DURATION_SECONDS = 2400 // 40 minutes
 
 export default async function handler(req, res) {
-  // Create admin client inside handler so env vars are always resolved
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
     process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -30,17 +29,33 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Missing required fields: email, durationSeconds, meetingDate' })
   }
 
+  // Diagnostic — log env var availability (values hidden)
+  console.log('[zoom-test] SUPABASE_URL set:', !!process.env.NEXT_PUBLIC_SUPABASE_URL)
+  console.log('[zoom-test] SERVICE_ROLE_KEY set:', !!process.env.SUPABASE_SERVICE_ROLE_KEY)
+  console.log('[zoom-test] Looking for email:', email)
+
   const currentYear = new Date(meetingDate).getFullYear()
   const monthYear = new Date(meetingDate).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
   const courseTitle = `NSSA Monthly Member Call — ${monthYear}`
   const meetingUuid = `TEST-${meetingDate}`
 
-  // Look up member
-  const { data: member } = await supabase
+  // Look up member — surface the actual Supabase error if it fails
+  const { data: member, error: memberError } = await supabase
     .from('members')
     .select('email, first_name, last_name, nssa_certified, irmaa_certified')
     .eq('email', email)
-    .single()
+    .maybeSingle()
+
+  console.log('[zoom-test] member:', JSON.stringify(member))
+  console.log('[zoom-test] memberError:', JSON.stringify(memberError))
+
+  if (memberError) {
+    return res.status(500).json({
+      error: `Database error: ${memberError.message}`,
+      code: memberError.code,
+      details: memberError.details
+    })
+  }
 
   if (!member) {
     return res.status(404).json({ error: `No member found for ${email}` })
@@ -71,7 +86,6 @@ export default async function handler(req, res) {
 
   const qualifies = durationSeconds >= MIN_DURATION_SECONDS
 
-  // Check for existing record (deduplication)
   const { data: existing } = await supabase
     .from('ce_submissions')
     .select('*')
@@ -123,14 +137,8 @@ export default async function handler(req, res) {
   }
 
   return res.status(200).json({
-    ok: true,
-    action,
-    submissionId,
-    email,
-    designation,
-    durationSeconds,
-    totalDuration,
-    qualifies,
+    ok: true, action, submissionId, email, designation,
+    durationSeconds, totalDuration, qualifies,
     status: totalDuration >= MIN_DURATION_SECONDS ? 'approved' : 'pending',
     courseTitle
   })
