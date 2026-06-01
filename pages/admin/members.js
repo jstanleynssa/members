@@ -188,7 +188,8 @@ export default function AdminMembers({ rows, selectedYear, availableYears, curre
 
     list.sort((a, b) => {
       let av, bv
-      if (sortCol === 'lastName')    { av = a.lastName.toLowerCase();  bv = b.lastName.toLowerCase() }
+     if (sortCol === 'firstName')       { av = a.firstName.toLowerCase(); bv = b.firstName.toLowerCase() }
+else if (sortCol === 'lastName')   { av = a.lastName.toLowerCase();  bv = b.lastName.toLowerCase() }
       else if (sortCol === 'nssaHours')  { av = a.nssaHours;  bv = b.nssaHours }
       else if (sortCol === 'irmaaHours') { av = a.irmaaHours; bv = b.irmaaHours }
       else if (sortCol === 'lastDate')   { av = a.lastDate || ''; bv = b.lastDate || '' }
@@ -318,7 +319,7 @@ export default function AdminMembers({ rows, selectedYear, availableYears, curre
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr>
-              <th style={thStyle('name')} onClick={() => handleSort('lastName')}>Name <SortIcon col="lastName" /></th>
+              <th style={thStyle('firstName')} onClick={() => handleSort('firstName')}>Name <SortIcon col="firstName" /></th>
               <th style={thStyle('lastName')} onClick={() => handleSort('lastName')}>Last Name <SortIcon col="lastName" /></th>
               <th style={thStyle('state')} onClick={() => handleSort('state')}>State <SortIcon col="state" /></th>
               <th style={{ ...thStyle('nssaHours', NSSA.dark), minWidth: '110px' }} onClick={() => handleSort('nssaHours')}>NSSA Hours <SortIcon col="nssaHours" /></th>
