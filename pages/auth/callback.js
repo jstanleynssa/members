@@ -7,26 +7,53 @@ export default function AuthCallback() {
   const [status, setStatus] = useState('Signing you in…')
 
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === 'SIGNED_IN' && session) {
-        setStatus('Signed in! Redirecting…')
-        router.replace('/dashboard')
-      }
-    })
-    const timeout = setTimeout(async () => {
+    let subscription
+    let timeout
+
+    async function handleCallback() {
+      // Check immediately — Supabase may have already processed the hash
+      // fragment (#access_token=...) before our listener was set up
       const { data: { session } } = await supabase.auth.getSession()
-      if (!session) router.replace('/login?error=no_session')
-    }, 5000)
-    return () => { subscription.unsubscribe(); clearTimeout(timeout) }
+      if (session) {
+        router.replace('/dashboard')
+        return
+      }
+
+      // If no session yet, listen for it (covers slower connections)
+      const { data } = supabase.auth.onAuthStateChange((event, sess) => {
+        if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && sess) {
+          router.replace('/dashboard')
+        }
+      })
+      subscription = data.subscription
+
+      // Final fallback — check again after 6 seconds
+      timeout = setTimeout(async () => {
+        const { data: { session: s } } = await supabase.auth.getSession()
+        if (s) router.replace('/dashboard')
+        else router.replace('/login?error=no_session')
+      }, 6000)
+    }
+
+    handleCallback()
+
+    return () => {
+      if (subscription) subscription.unsubscribe()
+      if (timeout) clearTimeout(timeout)
+    }
   }, [router])
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', fontFamily: 'system-ui, sans-serif', color: '#666' }}>
-      <p>{status}</p>
+    <div style={{
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      height: '100vh', fontFamily: 'system-ui, sans-serif', color: '#666'
+    }}>
+      <p style={{ fontSize: '1.25rem' }}>{status}</p>
     </div>
   )
 }
 
+// Handles PKCE flow (code= query param) — used by some auth methods
 export async function getServerSideProps(context) {
   const { query } = context
   if (query.code) {
