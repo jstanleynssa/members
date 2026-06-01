@@ -40,11 +40,13 @@ export default async function handler(req, res) {
   const meetingUuid = `TEST-${meetingDate}`
 
   // Look up member — surface the actual Supabase error if it fails
-  const { data: member, error: memberError } = await supabase
-    .from('members')
-    .select('email, first_name, last_name, nssa_certified, irmaa_certified')
-    .eq('email', email)
-    .maybeSingle()
+const { data: members, error: memberError } = await supabase
+  .from('members')
+  .select('email, first_name, last_name, nssa_certified, irmaa_certified')
+  .eq('email', email)
+  .limit(1)
+
+const member = members?.[0] || null
 
   console.log('[zoom-test] member:', JSON.stringify(member))
   console.log('[zoom-test] memberError:', JSON.stringify(memberError))
