@@ -23,11 +23,23 @@ export async function getServerSideProps(context) {
   const selectedYear = parseInt(context.query.year) || new Date().getFullYear()
 
   // Fetch all certified members
-  const { data: members, error } = await supabaseAdmin
+let allMembers = []
+let from = 0
+while (true) {
+  const { data, error: fetchError } = await supabaseAdmin
     .from('members')
     .select('email, first_name, last_name, nssa_certified, irmaa_certified, nssa_cert_date, irmaa_cert_date, is_active, state, company')
     .or('nssa_certified.eq.true,irmaa_certified.eq.true')
-    .order('last_name', { nullsFirst: false })
+    .order('last_name', { ascending: true })
+    .range(from, from + 999)
+  if (fetchError) { console.error('Members fetch error:', fetchError.message); break }
+  if (!data || data.length === 0) break
+  allMembers = allMembers.concat(data)
+  if (data.length < 1000) break
+  from += 1000
+}
+const members = allMembers
+const error = null
 
   if (error) console.error('Members fetch error:', error)
 
