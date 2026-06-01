@@ -1,5 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 
+const MIN_DURATION_SECONDS = 2400 // 40 minutes
+
 export default async function handler(req, res) {
   // Create admin client inside handler so env vars are always resolved
   const supabase = createClient(
@@ -9,14 +11,13 @@ export default async function handler(req, res) {
 
   // DELETE — clean up test records
   if (req.method === 'DELETE') {
-const MIN_DURATION_SECONDS = 2400 // 40 minutes
-
-export default async function handler(req, res) {
-  // DELETE — clean up test records
-  if (req.method === 'DELETE') {
     const { submissionId } = req.body
     if (!submissionId) return res.status(400).json({ error: 'Missing submissionId' })
-    const { error } = await supabase.from('ce_submissions').delete().eq('id', submissionId).eq('source', 'zoom_auto')
+    const { error } = await supabase
+      .from('ce_submissions')
+      .delete()
+      .eq('id', submissionId)
+      .eq('source', 'zoom_auto')
     if (error) return res.status(500).json({ error: error.message })
     return res.status(200).json({ ok: true, deleted: submissionId })
   }
@@ -32,7 +33,7 @@ export default async function handler(req, res) {
   const currentYear = new Date(meetingDate).getFullYear()
   const monthYear = new Date(meetingDate).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
   const courseTitle = `NSSA Monthly Member Call — ${monthYear}`
-  const meetingUuid = `TEST-${meetingDate}` // stable test UUID per date
+  const meetingUuid = `TEST-${meetingDate}`
 
   // Look up member
   const { data: member } = await supabase
@@ -70,7 +71,7 @@ export default async function handler(req, res) {
 
   const qualifies = durationSeconds >= MIN_DURATION_SECONDS
 
-  // Check for existing record for this test meeting
+  // Check for existing record (deduplication)
   const { data: existing } = await supabase
     .from('ce_submissions')
     .select('*')
@@ -79,7 +80,6 @@ export default async function handler(req, res) {
     .maybeSingle()
 
   const totalDuration = (existing?.zoom_duration_seconds || 0) + durationSeconds
-
   let action, submissionId
 
   if (existing) {
@@ -131,7 +131,7 @@ export default async function handler(req, res) {
     durationSeconds,
     totalDuration,
     qualifies,
-    status: qualifies || totalDuration >= MIN_DURATION_SECONDS ? 'approved' : 'pending',
+    status: totalDuration >= MIN_DURATION_SECONDS ? 'approved' : 'pending',
     courseTitle
   })
 }
