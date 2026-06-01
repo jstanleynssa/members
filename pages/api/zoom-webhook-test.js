@@ -1,10 +1,14 @@
 import { createClient } from '@supabase/supabase-js'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-)
+export default async function handler(req, res) {
+  // Create admin client inside handler so env vars are always resolved
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.SUPABASE_SERVICE_ROLE_KEY
+  )
 
+  // DELETE — clean up test records
+  if (req.method === 'DELETE') {
 const MIN_DURATION_SECONDS = 2400 // 40 minutes
 
 export default async function handler(req, res) {
