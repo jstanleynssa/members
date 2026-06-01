@@ -13,6 +13,9 @@ export async function middleware(req) {
   const isCallback = pathname.startsWith('/auth/callback')
 const isKajabiSSO = pathname.startsWith('/api/auth/kajabi-sso')
 const isZoomWebhook = pathname.startsWith('/api/zoom-webhook')
+const isCeStatus = pathname.startsWith('/api/ce-status')
+
+if (isCallback || isPublic || isKajabiSSO || isZoomWebhook || isCeStatus) return res
 
 if (isCallback || isPublic || isKajabiSSO || isZoomWebhook) return res
 
