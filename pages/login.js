@@ -16,10 +16,13 @@ export default function Login() {
     e.preventDefault()
     setLoading(true)
     setError(null)
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: { shouldCreateUser: false }
-    })
+const { error } = await supabase.auth.signInWithOtp({
+  email,
+  options: {
+    shouldCreateUser: false,
+    emailRedirectTo: 'https://members.nssapros.com/auth/callback'
+  }
+})
     if (error) { setError(error.message); setLoading(false) }
     else { setStep('code'); setLoading(false) }
   }
