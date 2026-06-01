@@ -7,40 +7,56 @@ export default function AuthCallback() {
   const [status, setStatus] = useState('Signing you in…')
 
   useEffect(() => {
-    let subscription
-    let timeout
-
     async function handleCallback() {
-      // Check immediately — Supabase may have already processed the hash
-      // fragment (#access_token=...) before our listener was set up
+      // ── Strategy 1: Hash fragment (#access_token=...) from magic link ──────
+      const hash = window.location.hash.substring(1)
+      if (hash) {
+        const params = new URLSearchParams(hash)
+        const accessToken = params.get('access_token')
+        const refreshToken = params.get('refresh_token')
+
+        if (accessToken && refreshToken) {
+          setStatus('Verifying your link…')
+          const { data, error } = await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken
+          })
+          if (!error && data?.session) {
+            // Clear the tokens from the URL bar for security
+            window.history.replaceState(null, '', window.location.pathname)
+            router.replace('/dashboard')
+            return
+          }
+          console.error('[callback] setSession error:', error?.message)
+        }
+      }
+
+      // ── Strategy 2: Already has a session ───────────────────────────────────
       const { data: { session } } = await supabase.auth.getSession()
       if (session) {
         router.replace('/dashboard')
         return
       }
 
-      // If no session yet, listen for it (covers slower connections)
+      // ── Strategy 3: Listen for auth state change (covers slower paths) ──────
       const { data } = supabase.auth.onAuthStateChange((event, sess) => {
         if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && sess) {
           router.replace('/dashboard')
         }
       })
-      subscription = data.subscription
 
-      // Final fallback — check again after 6 seconds
-      timeout = setTimeout(async () => {
+      // ── Fallback after 6 seconds ─────────────────────────────────────────────
+      setTimeout(async () => {
         const { data: { session: s } } = await supabase.auth.getSession()
         if (s) router.replace('/dashboard')
-        else router.replace('/login?error=no_session')
+        else {
+          setStatus('Sign-in failed. Redirecting…')
+          router.replace('/login?error=no_session')
+        }
       }, 6000)
     }
 
     handleCallback()
-
-    return () => {
-      if (subscription) subscription.unsubscribe()
-      if (timeout) clearTimeout(timeout)
-    }
   }, [router])
 
   return (
@@ -53,7 +69,7 @@ export default function AuthCallback() {
   )
 }
 
-// Handles PKCE flow (code= query param) — used by some auth methods
+// Handles PKCE flow (code= query param)
 export async function getServerSideProps(context) {
   const { query } = context
   if (query.code) {
