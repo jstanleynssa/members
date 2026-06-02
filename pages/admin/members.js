@@ -28,7 +28,7 @@ export async function getServerSideProps(context) {
   while (true) {
     const { data, error: fetchError } = await supabaseAdmin
       .from('members')
-      .select('email, first_name, last_name, nssa_certified, irmaa_certified, nssa_cert_date, irmaa_cert_date, is_active, state, company')
+      .select('email, first_name, last_name, nssa_certified, irmaa_certified, nssa_cert_date, irmaa_cert_date, is_active, state, company, bio')
       .or('nssa_certified.eq.true,irmaa_certified.eq.true')
       .order('last_name', { ascending: true })
       .range(from, from + 999)
@@ -78,6 +78,10 @@ export async function getServerSideProps(context) {
       : ce.irmaa > 0 ? 'progress'
       : 'unstarted'
 
+    // "Has a profile" = bio field contains content (after stripping any HTML tags/whitespace)
+    const bioText = (m.bio || '').replace(/<[^>]*>/g, '').trim()
+    const hasProfile = bioText.length > 0
+
     return {
       email: m.email,
       firstName: m.first_name || '',
@@ -92,6 +96,7 @@ export async function getServerSideProps(context) {
       nssaStatus,
       irmaaStatus,
       lastDate: ce.lastDate,
+      hasProfile,
     }
   })
 
@@ -144,6 +149,7 @@ export default function AdminMembers({ rows, selectedYear, availableYears, curre
   const [designFilter, setDesignFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
   const [activeFilter, setActiveFilter] = useState('active')
+  const [profileFilter, setProfileFilter] = useState('all')
   const [sortCol, setSortCol] = useState('lastName')
   const [sortDir, setSortDir] = useState('asc')
   const [page, setPage] = useState(1)
@@ -174,6 +180,9 @@ export default function AdminMembers({ rows, selectedYear, availableYears, curre
     if (designFilter === 'nssa') list = list.filter(r => r.nssaCertified)
     if (designFilter === 'irmaa') list = list.filter(r => r.irmaaCertified)
 
+    if (profileFilter === 'has') list = list.filter(r => r.hasProfile)
+    if (profileFilter === 'none') list = list.filter(r => !r.hasProfile)
+
     if (statusFilter !== 'all') {
       list = list.filter(r => {
         if (designFilter === 'nssa') return r.nssaStatus === statusFilter
@@ -201,7 +210,7 @@ export default function AdminMembers({ rows, selectedYear, availableYears, curre
       return 0
     })
     return list
-  }, [rows, search, designFilter, statusFilter, activeFilter, sortCol, sortDir])
+  }, [rows, search, designFilter, statusFilter, activeFilter, profileFilter, sortCol, sortDir])
 
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE)
   const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
@@ -211,14 +220,16 @@ export default function AdminMembers({ rows, selectedYear, availableYears, curre
   const irmaaMembers = activeRows.filter(r => r.irmaaCertified)
   const nssaMet = nssaMembers.filter(r => r.nssaStatus === 'met' || r.nssaStatus === 'exempt').length
   const irmaaMet = irmaaMembers.filter(r => r.irmaaStatus === 'met' || r.irmaaStatus === 'exempt').length
+  const profilesCreated = activeRows.filter(r => r.hasProfile).length
 
   function exportCSV() {
-    const headers = ['First Name', 'Last Name', 'Email', 'Company', 'State', 'NSSA Certified', 'IRMAA Certified', 'Active', 'NSSA Hours', 'NSSA Status', 'IRMAA Hours', 'IRMAA Status', 'Last Submission']
+    const headers = ['First Name', 'Last Name', 'Email', 'Company', 'State', 'NSSA Certified', 'IRMAA Certified', 'Active', 'Profile', 'NSSA Hours', 'NSSA Status', 'IRMAA Hours', 'IRMAA Status', 'Last Submission']
     const csvRows = filtered.map(r => [
       r.firstName, r.lastName, r.email, r.company, r.state,
       r.nssaCertified ? 'Yes' : 'No',
       r.irmaaCertified ? 'Yes' : 'No',
       r.isActive ? 'Active' : 'Inactive',
+      r.hasProfile ? 'Created' : 'Not Created',
       r.nssaHours, r.nssaStatus.toUpperCase(),
       r.irmaaHours, r.irmaaStatus.toUpperCase(),
       r.lastDate || ''
@@ -261,7 +272,7 @@ export default function AdminMembers({ rows, selectedYear, availableYears, curre
       {/* KPI Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '12px', marginBottom: '1.5rem' }}>
         <KpiCard label="Total Active" value={activeRows.length} color="#111" />
-        <KpiCard label="NSSA Certified" value={nssaMembers.length} color={NSSA.medium} />
+        <KpiCard label="Profiles Created" value={profilesCreated} sub={pct(profilesCreated, activeRows.length) + ' of active'} color={NSSA.medium} />
         <KpiCard label="NSSA Req. Met" value={nssaMet} sub={pct(nssaMet, nssaMembers.length) + ' of NSSA'} color={NSSA.dark} />
         <KpiCard label="NSSA Not Met" value={nssaMembers.length - nssaMet} sub={pct(nssaMembers.length - nssaMet, nssaMembers.length) + ' of NSSA'} color={nssaMembers.length - nssaMet > 0 ? '#dc2626' : GRAY.text} />
         <KpiCard label="IRMAA Req. Met" value={irmaaMet} sub={pct(irmaaMet, irmaaMembers.length) + ' of IRMAA'} color={IRMAA.dark} />
@@ -293,6 +304,13 @@ export default function AdminMembers({ rows, selectedYear, availableYears, curre
           <option value="progress">In progress</option>
           <option value="unstarted">Not started</option>
           <option value="exempt">Exempt (new cert)</option>
+        </select>
+
+        <select style={selectStyle} value={profileFilter}
+          onChange={e => { setProfileFilter(e.target.value); setPage(1) }}>
+          <option value="all">All profiles</option>
+          <option value="has">Profile created</option>
+          <option value="none">Profile not created</option>
         </select>
 
         <select style={selectStyle} value={activeFilter}
@@ -328,7 +346,7 @@ export default function AdminMembers({ rows, selectedYear, availableYears, curre
               <th style={{ ...thStyle('irmaaHours', IRMAA.dark), minWidth: '120px' }} onClick={() => handleSort('irmaaHours')}>IRMAA Hours <SortIcon col="irmaaHours" /></th>
               <th style={{ ...thStyle('irmaaStatus', IRMAA.dark) }}>IRMAA Status</th>
               <th style={thStyle('lastDate')} onClick={() => handleSort('lastDate')}>Last Submission <SortIcon col="lastDate" /></th>
-              <th style={{ ...thStyle(''), cursor: 'default' }}></th>
+              <th style={{ ...thStyle('hasProfile'), cursor: 'pointer' }} onClick={() => handleSort('hasProfile')}>Profile <SortIcon col="hasProfile" /></th>
             </tr>
           </thead>
           <tbody>
@@ -366,10 +384,17 @@ export default function AdminMembers({ rows, selectedYear, availableYears, curre
                   {r.lastDate ? new Date(r.lastDate).toLocaleDateString() : '—'}
                 </td>
                 <td style={{ ...td, textAlign: 'right' }}>
-                  <Link href={`/admin/member-view?email=${encodeURIComponent(r.email)}`}
-                    style={{ fontSize: '12px', color: NSSA.medium, textDecoration: 'none', fontWeight: 500, whiteSpace: 'nowrap' }}>
-                    View →
-                  </Link>
+                  {r.hasProfile ? (
+                    <Link href={`/admin/member-view?email=${encodeURIComponent(r.email)}`}
+                      style={{ fontSize: '12px', color: NSSA.medium, textDecoration: 'none', fontWeight: 500, whiteSpace: 'nowrap' }}>
+                      View Profile →
+                    </Link>
+                  ) : (
+                    <Link href={`/admin/member-view?email=${encodeURIComponent(r.email)}`}
+                      style={{ fontSize: '12px', color: GRAY.text, textDecoration: 'none', fontWeight: 400, whiteSpace: 'nowrap', fontStyle: 'italic' }}>
+                      Profile Not Created
+                    </Link>
+                  )}
                 </td>
               </tr>
             ))}
