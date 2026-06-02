@@ -1,5 +1,4 @@
 import { createClient } from '@supabase/supabase-js'
-import sharp from 'sharp'
 
 const TARGET_WIDTH  = 676
 const TARGET_HEIGHT = 696
