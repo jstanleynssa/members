@@ -31,12 +31,14 @@ export default async function handler(req, res) {
     process.env.SUPABASE_SERVICE_ROLE_KEY
   )
 
-  const { email, photoUrl } = req.body
-  if (!email || !photoUrl) {
-    return res.status(400).json({ error: 'Missing email or photoUrl' })
+  // Accepts either a photoUrl (Zapier/S3) or imageData (base64 from portal upload)
+  const { email, photoUrl, imageData, mimeType, enhance = true } = req.body
+
+  if (!email || (!photoUrl && !imageData)) {
+    return res.status(400).json({ error: 'Missing email and photo source' })
   }
 
-  // ── Fetch member details for filename and alt text ────────────────────────
+  // Fetch member details for filename and alt text
   const { data: member } = await supabase
     .from('members')
     .select('first_name, last_name, job_title, city')
@@ -61,21 +63,35 @@ export default async function handler(req, res) {
   const falKey = process.env.FAL_API_KEY
 
   try {
-    let imageUrl = photoUrl
+    let imageUrl  = photoUrl  || null
+    let imgBuffer = imageData ? Buffer.from(imageData, 'base64') : null
 
-    // ── Step 1: Transform with FLUX.1 Kontext [pro] via fal.ai ───────────────
-    if (falKey) {
+    // ── Step 1: If base64 provided, upload to temp Supabase path for fal.ai ──
+    if (imageData && enhance && falKey) {
+      const tempPath = `temp/${slugify(email)}-${Date.now()}.jpg`
+      const tempType = mimeType || 'image/jpeg'
+      const { error: tempErr } = await supabase.storage
+        .from('profile-photos')
+        .upload(tempPath, imgBuffer, { contentType: tempType, upsert: true })
+
+      if (!tempErr) {
+        const { data: tempUrl } = supabase.storage
+          .from('profile-photos')
+          .getPublicUrl(tempPath)
+        imageUrl = tempUrl.publicUrl
+        console.log(`[photo] Temp upload for fal.ai ✓`)
+      }
+    }
+
+    // ── Step 2: AI enhancement via FLUX.1 Kontext [pro] ──────────────────────
+    if (enhance && falKey && imageUrl) {
       try {
         console.log(`[photo] Submitting to FLUX.1 Kontext [pro] for ${email}...`)
-
         const falRes = await fetch('https://fal.run/fal-ai/flux-pro/kontext', {
           method: 'POST',
-          headers: {
-            'Authorization': `Key ${falKey}`,
-            'Content-Type': 'application/json'
-          },
+          headers: { 'Authorization': `Key ${falKey}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            image_url: photoUrl,
+            image_url: imageUrl,
             prompt: HEADSHOT_PROMPT,
             negative_prompt: HEADSHOT_NEGATIVE,
             aspect_ratio: '1:1',
@@ -89,10 +105,11 @@ export default async function handler(req, res) {
           const falData = await falRes.json()
           const outputUrl = falData?.images?.[0]?.url
           if (outputUrl) {
-            imageUrl = outputUrl
-            console.log(`[photo] FLUX.1 Kontext complete ✓`)
-          } else {
-            console.warn(`[photo] Kontext returned no image URL — using original`)
+            const dlRes = await fetch(outputUrl)
+            if (dlRes.ok) {
+              imgBuffer = Buffer.from(await dlRes.arrayBuffer())
+              console.log(`[photo] FLUX.1 Kontext complete ✓`)
+            }
           }
         } else {
           const errText = await falRes.text()
@@ -101,63 +118,54 @@ export default async function handler(req, res) {
       } catch (e) {
         console.warn(`[photo] Kontext error: ${e.message} — using original`)
       }
-    } else {
-      console.warn('[photo] FAL_API_KEY not set — skipping AI transformation')
     }
 
-    // ── Step 2: Download final image ──────────────────────────────────────────
-    console.log(`[photo] Downloading processed image...`)
-    const imgRes = await fetch(imageUrl)
-    if (!imgRes.ok) return res.status(400).json({ error: `Image download failed: ${imgRes.status}` })
-    let imgBuffer = Buffer.from(await imgRes.arrayBuffer())
-    console.log(`[photo] Downloaded ✓`)
+    // ── Step 3: If we still only have a URL (no buffer yet), download it ──────
+    if (!imgBuffer && imageUrl) {
+      console.log(`[photo] Downloading image...`)
+      const dlRes = await fetch(imageUrl)
+      if (!dlRes.ok) return res.status(400).json({ error: `Image download failed: ${dlRes.status}` })
+      imgBuffer = Buffer.from(await dlRes.arrayBuffer())
+    }
 
-    // ── Step 3: Resize to 676×696 at 144ppi, face-top crop ───────────────────
+    if (!imgBuffer) return res.status(400).json({ error: 'No image data available' })
+
+    // ── Step 4: Resize to 676×696 at 144ppi ──────────────────────────────────
     console.log(`[photo] Resizing to ${TARGET_WIDTH}×${TARGET_HEIGHT} at ${TARGET_DPI}ppi...`)
     imgBuffer = await sharp(imgBuffer)
-      .resize(TARGET_WIDTH, TARGET_HEIGHT, {
-        fit: 'cover',
-        position: 'top'
-      })
+      .resize(TARGET_WIDTH, TARGET_HEIGHT, { fit: 'cover', position: 'top' })
       .withMetadata({ density: TARGET_DPI })
       .jpeg({ quality: 92 })
       .toBuffer()
     console.log(`[photo] Resized ✓`)
 
-    // ── Step 4: Upload to Supabase Storage ────────────────────────────────────
+    // ── Step 5: Upload final image to Supabase Storage ────────────────────────
     console.log(`[photo] Uploading as ${filename}...`)
     const { error: uploadError } = await supabase.storage
       .from('profile-photos')
       .upload(filename, imgBuffer, { contentType: 'image/jpeg', upsert: true })
 
-    if (uploadError) {
-      return res.status(500).json({ error: `Upload failed: ${uploadError.message}` })
-    }
+    if (uploadError) return res.status(500).json({ error: `Upload failed: ${uploadError.message}` })
 
-    const { data: urlData } = supabase.storage
-      .from('profile-photos')
-      .getPublicUrl(filename)
-
+    const { data: urlData } = supabase.storage.from('profile-photos').getPublicUrl(filename)
     const permanentUrl = urlData.publicUrl
 
-    // ── Step 5: Update member record ──────────────────────────────────────────
+    // ── Step 6: Update member record ──────────────────────────────────────────
     const { error: updateError } = await supabase
       .from('members')
       .update({ profile_photo: permanentUrl })
       .eq('email', email)
 
-    if (updateError) {
-      return res.status(500).json({ error: `Member update failed: ${updateError.message}` })
+    if (updateError) return res.status(500).json({ error: `Member update failed: ${updateError.message}` })
+
+    // Clean up temp file if created
+    if (imageData && enhance) {
+      const tempPath = `temp/${slugify(email)}-*.jpg`
+      await supabase.storage.from('profile-photos').remove([tempPath]).catch(() => {})
     }
 
     console.log(`[photo] ✓ Complete for ${email} → ${permanentUrl}`)
-    return res.status(200).json({
-      ok: true,
-      email,
-      filename,
-      profile_photo: permanentUrl,
-      alt_text: altText
-    })
+    return res.status(200).json({ ok: true, email, filename, profile_photo: permanentUrl, alt_text: altText })
 
   } catch (err) {
     console.error('[photo] Unexpected error:', err.message)
