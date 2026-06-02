@@ -151,7 +151,7 @@ export default async function handler(req, res) {
     // ── Step 6: Upload to Supabase Storage ────────────────────────────────────
     const safeEmail = email.toLowerCase().replace(/[^a-z0-9]/g, '-')
     const filename = `${safeEmail}-${Date.now()}.jpg`
-    const storagePath = `profile-photos/${filename}`
+    const storagePath = filename
 
     const { error: uploadError } = await supabase.storage
       .from('profile-photos')
