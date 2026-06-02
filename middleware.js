@@ -11,16 +11,19 @@ export async function middleware(req) {
   const { pathname } = req.nextUrl
   const isPublic = PUBLIC_PATHS.some(p => pathname.startsWith(p))
   const isCallback = pathname.startsWith('/auth/callback')
-const isKajabiSSO = pathname.startsWith('/api/auth/kajabi-sso')
-const isZoomWebhook = pathname.startsWith('/api/zoom-webhook')
-const isCeStatus = pathname.startsWith('/api/ce-status')
+  const isKajabiSSO = pathname.startsWith('/api/auth/kajabi-sso')
+  const isZoomWebhook = pathname.startsWith('/api/zoom-webhook')
+  const isCeStatus = pathname.startsWith('/api/ce-status')
+  const isSavePhoto = pathname.startsWith('/api/save-profile-photo')
+
+if (isCallback || isPublic || isKajabiSSO || isZoomWebhook || isCeStatus || isSavePhoto) return res
 
 if (isCallback || isPublic || isKajabiSSO || isZoomWebhook || isCeStatus) return res
 
 if (isCallback || isPublic || isKajabiSSO || isZoomWebhook) return res
 
-  if (!session) {
-    return NextResponse.redirect(new URL('/login', req.url))
+if (!session) {
+  return NextResponse.redirect(new URL('/login', req.url))
   }
 
   return res
