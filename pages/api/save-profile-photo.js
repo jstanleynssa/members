@@ -36,23 +36,25 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Missing email or photoUrl' })
   }
 
-  // ── Fetch member name + job title for filename and alt text ───────────────
+  // ── Fetch member details for filename and alt text ────────────────────────
   const { data: member } = await supabase
     .from('members')
-    .select('first_name, last_name, job_title')
+    .select('first_name, last_name, job_title, city')
     .eq('email', email)
     .single()
 
   const firstName = slugify(member?.first_name)
   const lastName  = slugify(member?.last_name)
   const jobTitle  = slugify(member?.job_title)
-  const baseName  = [firstName, lastName, jobTitle].filter(Boolean).join('-')
+  const city      = slugify(member?.city)
+  const baseName  = [firstName, lastName, jobTitle, city].filter(Boolean).join('-')
   const filename  = `${baseName || slugify(email)}.jpg`
 
   const altText = [
     member?.first_name,
     member?.last_name,
     member?.job_title ? `- ${member.job_title}` : null,
+    member?.city ? `in ${member.city}` : null,
     '| Professional Headshot'
   ].filter(Boolean).join(' ')
 
