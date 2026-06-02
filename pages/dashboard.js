@@ -42,11 +42,11 @@ export async function getServerSideProps(context) {
     .eq('source', 'manual')
     .lt('submitted_at', new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString())
 
-  const { data: member } = await supabaseServer
-    .from('members')
-    .select('*')
-    .eq('email', session.user.email)
-    .single()
+const { data: member } = await supabaseAdmin
+  .from('members')
+  .select('email, first_name, last_name, nssa_certified, irmaa_certified, nssa_cert_date, irmaa_cert_date, nssa_number, irmaa_number, profile_photo, job_title, company, city, state, phone, website, bio')
+  .eq('email', session.user.email)
+  .single()
 
   if (!member || (!member.nssa_certified && !member.irmaa_certified)) {
   await supabaseServer.auth.signOut()
@@ -387,34 +387,95 @@ export default function Dashboard({ member, submissions, nssaHours, irmaaHours, 
         </div>
       </div>
 
-      {/* Member Profile */}
-      <div style={{ marginBottom: '2rem' }}>
-        <p style={sectionLabel}>Member Profile</p>
-        <div style={{ background: 'white', borderRadius: '10px', border: '1px solid #e5e7eb', padding: '1.25rem 1.5rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
-              <div style={{ width: 44, height: 44, borderRadius: '50%', background: NSSA.dark, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 700, fontSize: '16px', flexShrink: 0 }}>
-                {(member?.first_name?.[0] || userEmail[0]).toUpperCase()}
-              </div>
-              <div>
-                <p style={{ fontWeight: 600, fontSize: '14px', marginBottom: '2px' }}>
-                  {member?.first_name && member?.last_name ? `${member.first_name} ${member.last_name}` : userEmail}
-                </p>
-                <p style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>{userEmail}</p>
-                <div style={{ display: 'flex', gap: '6px' }}>
-                  {member?.nssa_certified && (
-                    <span style={{ fontSize: '11px', padding: '1px 8px', borderRadius: '4px', background: '#eff6ff', color: NSSA.medium, border: `1px solid ${NSSA.light}` }}>NSSA® Certified</span>
-                  )}
-                  {member?.irmaa_certified && (
-                    <span style={{ fontSize: '11px', padding: '1px 8px', borderRadius: '4px', background: '#fef2f2', color: IRMAA.medium, border: `1px solid ${IRMAA.light}` }}>IRMAACP™ Certified</span>
-                  )}
-                </div>
-              </div>
-            </div>
-            <span style={{ fontSize: '12px', color: '#9ca3af', fontStyle: 'italic' }}>Profile editing coming soon</span>
-          </div>
+     {/* MEMBER PROFILE */}
+<div style={{ marginTop: '2rem' }}>
+  <h2 style={{ fontSize: '11px', fontWeight: 600, color: GRAY.text, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '1rem' }}>
+    Member Profile
+  </h2>
+  <div style={{ background: 'white', border: `1px solid ${GRAY.border}`, borderRadius: '10px', padding: '1.5rem', display: 'flex', gap: '1.5rem', alignItems: 'flex-start' }}>
+
+    {/* Photo */}
+    <div style={{ flexShrink: 0 }}>
+      {member.profile_photo ? (
+        <img
+          src={member.profile_photo}
+          alt={`${member.first_name} ${member.last_name}`}
+          style={{ width: '100px', height: '103px', objectFit: 'cover', objectPosition: 'top', borderRadius: '8px', border: `1px solid ${GRAY.border}` }}
+        />
+      ) : (
+        <div style={{ width: '100px', height: '103px', borderRadius: '8px', background: NSSA.dark, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: '32px', fontWeight: 700 }}>
+          {member.first_name?.[0] || '?'}
         </div>
+      )}
+    </div>
+
+    {/* Details */}
+    <div style={{ flex: 1, minWidth: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '6px' }}>
+        <div>
+          <p style={{ fontWeight: 700, fontSize: '17px', color: '#111', marginBottom: '2px' }}>
+            {member.first_name} {member.last_name}
+          </p>
+          {(member.job_title || member.company) && (
+            <p style={{ fontSize: '13px', color: GRAY.text, marginBottom: '2px' }}>
+              {[member.job_title, member.company].filter(Boolean).join(' · ')}
+            </p>
+          )}
+          {(member.city || member.state) && (
+            <p style={{ fontSize: '12px', color: GRAY.text }}>
+              {[member.city, member.state].filter(Boolean).join(', ')}
+            </p>
+          )}
+        </div>
+        <Link href="/profile/edit" style={{ fontSize: '12px', color: NSSA.medium, textDecoration: 'none', fontWeight: 500, whiteSpace: 'nowrap', marginLeft: '1rem' }}>
+          Edit Profile →
+        </Link>
       </div>
+
+      {/* Cert badges */}
+      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '10px' }}>
+        {member.nssa_certified && (
+          <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', background: '#eff6ff', color: NSSA.medium, border: `1px solid ${NSSA.light}` }}>
+            NSSA® Certified{member.nssa_number ? ` #${member.nssa_number}` : ''}
+          </span>
+        )}
+        {member.irmaa_certified && (
+          <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', background: '#fef2f2', color: '#AF2A35', border: '1px solid #ED8E8E' }}>
+            IRMAACP™ Certified{member.irmaa_number ? ` #${member.irmaa_number}` : ''}
+          </span>
+        )}
+      </div>
+
+      {/* Contact row */}
+      {(member.phone || member.website) && (
+        <div style={{ display: 'flex', gap: '16px', marginBottom: '10px', flexWrap: 'wrap' }}>
+          {member.phone && (
+            <span style={{ fontSize: '12px', color: GRAY.text }}>📞 {member.phone}</span>
+          )}
+          {member.website && (
+            <a href={member.website} target="_blank" rel="noopener noreferrer" style={{ fontSize: '12px', color: NSSA.medium, textDecoration: 'none' }}>
+              🌐 {member.website.replace(/^https?:\/\//, '')}
+            </a>
+          )}
+        </div>
+      )}
+
+      {/* Bio */}
+      {member.bio && (
+        <p style={{ fontSize: '13px', color: '#374151', lineHeight: 1.5, maxWidth: '680px', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+          {member.bio}
+        </p>
+      )}
+
+      {/* Empty state */}
+      {!member.job_title && !member.bio && !member.phone && (
+        <p style={{ fontSize: '12px', color: GRAY.text, fontStyle: 'italic' }}>
+          Your profile is incomplete — <Link href="/profile/edit" style={{ color: NSSA.medium, textDecoration: 'none' }}>add your details</Link> to appear in the advisor directory.
+        </p>
+      )}
+    </div>
+  </div>
+</div>
 
     </div>
   )
