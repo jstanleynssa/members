@@ -1,6 +1,6 @@
 import { createServerSupabaseClient } from '@supabase/auth-helpers-nextjs'
 import { createClient } from '@supabase/supabase-js'
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/router'
 
@@ -74,41 +74,67 @@ function StatusPill({ status, hours }) {
   )
 }
 
-function Input({ label, value, onChange, textarea, hint }) {
+function Input({ label, value, onChange, textarea }) {
   const base = { width: '100%', padding: '7px 10px', fontSize: '13px', border: `1px solid ${GRAY.border}`, borderRadius: '5px', outline: 'none', boxSizing: 'border-box', fontFamily: 'system-ui, sans-serif', background: 'white' }
   return (
     <div style={{ marginBottom: '10px' }}>
       <label style={{ display: 'block', fontSize: '11px', fontWeight: 500, color: GRAY.text, marginBottom: '3px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</label>
       {textarea
-        ? <textarea value={value || ''} onChange={onChange} style={{ ...base, minHeight: '120px', resize: 'vertical' }} />
+        ? <textarea value={value || ''} onChange={onChange} style={{ ...base, minHeight: '100px', resize: 'vertical' }} />
         : <input value={value || ''} onChange={onChange} style={base} />
       }
-      {hint && <p style={{ fontSize: '11px', color: GRAY.text, marginTop: '2px' }}>{hint}</p>}
+    </div>
+  )
+}
+
+// Rich bio editor using contentEditable — renders HTML, hides raw tags
+function BioEditor({ html, onChange }) {
+  const ref = useRef(null)
+
+  useEffect(() => {
+    if (ref.current && ref.current.innerHTML !== html) {
+      ref.current.innerHTML = html || ''
+    }
+  }, [])
+
+  return (
+    <div style={{ marginBottom: '10px' }}>
+      <label style={{ display: 'block', fontSize: '11px', fontWeight: 500, color: GRAY.text, marginBottom: '3px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Bio</label>
+      <div
+        ref={ref}
+        contentEditable
+        suppressContentEditableWarning
+        onInput={e => onChange(e.currentTarget.innerHTML)}
+        style={{ width: '100%', minHeight: '160px', padding: '8px 10px', fontSize: '13px', lineHeight: 1.6, border: `1px solid ${GRAY.border}`, borderRadius: '5px', outline: 'none', boxSizing: 'border-box', fontFamily: 'system-ui, sans-serif', background: 'white', color: '#374151', overflowY: 'auto', cursor: 'text' }}
+      />
+      <p style={{ fontSize: '11px', color: GRAY.text, marginTop: '3px' }}>Edit the text directly. Paragraph breaks are preserved automatically.</p>
     </div>
   )
 }
 
 export default function MemberView({ member: initialMember, subs, viewEmail, selectedYear, availableYears, nssaHours, irmaaHours, nssaStatus, irmaaStatus, daysLeft }) {
-  const router = useRouter()
-  const [member, setMember] = useState(initialMember)
+  const router  = useRouter()
+  const fileRef = useRef(null)
+
+  const [member, setMember]   = useState(initialMember)
   const [editing, setEditing] = useState(false)
-  const [form, setForm] = useState({
-    first_name: initialMember?.first_name || '',
-    last_name: initialMember?.last_name || '',
-    job_title: initialMember?.job_title || '',
-    company: initialMember?.company || '',
-    address: initialMember?.address || '',
-    city: initialMember?.city || '',
-    state: initialMember?.state || '',
-    zip: initialMember?.zip || '',
-    phone: initialMember?.phone || '',
-    website: initialMember?.website || '',
-    bio: initialMember?.bio || '',
-    financial_disclosure: initialMember?.financial_disclosure || '',
+  const [form, setForm]       = useState({
+    first_name: initialMember?.first_name || '', last_name: initialMember?.last_name || '',
+    job_title: initialMember?.job_title || '', company: initialMember?.company || '',
+    address: initialMember?.address || '', city: initialMember?.city || '',
+    state: initialMember?.state || '', zip: initialMember?.zip || '',
+    phone: initialMember?.phone || '', website: initialMember?.website || '',
+    bio: initialMember?.bio || '', financial_disclosure: initialMember?.financial_disclosure || '',
   })
-  const [saving, setSaving]     = useState(false)
-  const [saveMsg, setSaveMsg]   = useState(null)
+  const [saving, setSaving]   = useState(false)
+  const [saveMsg, setSaveMsg] = useState(null)
   const [yearFilter, setYearFilter] = useState('all')
+
+  // Photo upload state
+  const [selectedFile, setSelectedFile]   = useState(null)
+  const [photoPreview, setPhotoPreview]   = useState(null)
+  const [photoLoading, setPhotoLoading]   = useState(null)
+  const [photoMsg, setPhotoMsg]           = useState(null)
 
   if (!member) return (
     <div style={{ padding: '3rem', textAlign: 'center', fontFamily: 'system-ui, sans-serif' }}>
@@ -117,47 +143,58 @@ export default function MemberView({ member: initialMember, subs, viewEmail, sel
     </div>
   )
 
-  const fullName = [member.first_name, member.last_name].filter(Boolean).join(' ') || viewEmail
+  const fullName     = [member.first_name, member.last_name].filter(Boolean).join(' ') || viewEmail
   const filteredSubs = yearFilter === 'all' ? subs : subs.filter(s => String(s.year) === yearFilter)
   const td = { padding: '10px 14px', fontSize: '13px', verticalAlign: 'middle', borderTop: `1px solid ${GRAY.bg}` }
 
-  function handle(field) {
-    return e => setForm(f => ({ ...f, [field]: e.target.value }))
-  }
+  function handle(field) { return e => setForm(f => ({ ...f, [field]: e.target.value })) }
 
   async function handleSave() {
-    setSaving(true)
-    setSaveMsg(null)
+    setSaving(true); setSaveMsg(null)
     try {
-      const res = await fetch('/api/admin/save-member', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: viewEmail, ...form })
-      })
+      const res  = await fetch('/api/admin/save-member', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: viewEmail, ...form }) })
       const data = await res.json()
       if (!res.ok || !data.ok) throw new Error(data.error || 'Save failed')
-      // Update local member state so display reflects changes immediately
       setMember(m => ({ ...m, ...form }))
-      setEditing(false)
-      setSaveMsg('Saved!')
+      setEditing(false); setSaveMsg('Saved!')
       setTimeout(() => setSaveMsg(null), 3000)
-    } catch (err) {
-      setSaveMsg('Error: ' + err.message)
-    } finally {
-      setSaving(false)
-    }
+    } catch (err) { setSaveMsg('Error: ' + err.message) }
+    finally { setSaving(false) }
   }
 
   function handleCancel() {
-    setForm({
-      first_name: member.first_name || '', last_name: member.last_name || '',
-      job_title: member.job_title || '', company: member.company || '',
-      address: member.address || '', city: member.city || '',
-      state: member.state || '', zip: member.zip || '',
-      phone: member.phone || '', website: member.website || '',
-      bio: member.bio || '', financial_disclosure: member.financial_disclosure || '',
-    })
+    setForm({ first_name: member.first_name || '', last_name: member.last_name || '', job_title: member.job_title || '', company: member.company || '', address: member.address || '', city: member.city || '', state: member.state || '', zip: member.zip || '', phone: member.phone || '', website: member.website || '', bio: member.bio || '', financial_disclosure: member.financial_disclosure || '' })
+    setSelectedFile(null); setPhotoPreview(null); setPhotoMsg(null)
     setEditing(false)
+  }
+
+  function handleFileSelect(e) {
+    const file = e.target.files[0]; if (!file) return
+    setSelectedFile(file); setPhotoMsg(null)
+    const reader = new FileReader()
+    reader.onload = ev => setPhotoPreview(ev.target.result)
+    reader.readAsDataURL(file)
+  }
+
+  async function handlePhotoUpload(enhance) {
+    if (!selectedFile) return
+    setPhotoLoading(enhance ? 'ai' : 'asis'); setPhotoMsg(null)
+    try {
+      const base64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = e => resolve(e.target.result.split(',')[1])
+        reader.onerror = reject
+        reader.readAsDataURL(selectedFile)
+      })
+      const res  = await fetch('/api/save-profile-photo', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: viewEmail, imageData: base64, mimeType: selectedFile.type, enhance }) })
+      const data = await res.json()
+      if (!res.ok || !data.ok) throw new Error(data.error || 'Upload failed')
+      setMember(m => ({ ...m, profile_photo: data.profile_photo + '?t=' + Date.now() }))
+      setSelectedFile(null); setPhotoPreview(null)
+      setPhotoMsg(enhance ? '✓ AI-enhanced photo saved!' : '✓ Photo saved!')
+      if (fileRef.current) fileRef.current.value = ''
+    } catch (err) { setPhotoMsg('Error: ' + err.message) }
+    finally { setPhotoLoading(null) }
   }
 
   function statusColor(s) {
@@ -166,8 +203,9 @@ export default function MemberView({ member: initialMember, subs, viewEmail, sel
     return { bg: '#fef9c3', color: '#854d0e', border: '#fde68a' }
   }
 
-  const twoCol = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 1rem' }
+  const twoCol   = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 1rem' }
   const threeCol = { display: 'grid', gridTemplateColumns: '1fr 80px 100px', gap: '0 1rem' }
+  const btn      = (bg, disabled) => ({ fontSize: '12px', padding: '5px 14px', borderRadius: '6px', border: 'none', background: disabled ? GRAY.bg : bg, color: disabled ? GRAY.text : 'white', cursor: disabled ? 'not-allowed' : 'pointer', fontWeight: 600, opacity: disabled ? 0.7 : 1 })
 
   return (
     <div style={{ minHeight: '100vh', background: '#f5f5f5', fontFamily: 'system-ui, sans-serif' }}>
@@ -193,7 +231,7 @@ export default function MemberView({ member: initialMember, subs, viewEmail, sel
           <img src="/nssa-irmaa-logos.png" alt="NSSA IRMAA" style={{ height: '48px', width: 'auto' }} />
         </div>
 
-        {/* CE Requirements */}
+        {/* ── CE Requirements ─────────────────────────────────────────────── */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
           <h2 style={{ fontSize: '11px', fontWeight: 600, color: GRAY.text, textTransform: 'uppercase', letterSpacing: '0.08em' }}>CE Requirements — {selectedYear}</h2>
           <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
@@ -210,7 +248,7 @@ export default function MemberView({ member: initialMember, subs, viewEmail, sel
           </div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '2rem' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.5rem' }}>
           {member.nssa_certified ? (
             <div style={{ background: 'white', border: `2px solid ${nssaStatus === 'met' || nssaStatus === 'exempt' ? NSSA.medium : nssaStatus === 'unstarted' ? '#fecaca' : '#fde68a'}`, borderRadius: '10px', padding: '1.5rem' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
@@ -233,7 +271,6 @@ export default function MemberView({ member: initialMember, subs, viewEmail, sel
               </a>
             </div>
           )}
-
           {member.irmaa_certified ? (
             <div style={{ background: 'white', border: `2px solid ${irmaaStatus === 'met' || irmaaStatus === 'exempt' ? IRMAA.medium : irmaaStatus === 'unstarted' ? '#fecaca' : '#fde68a'}`, borderRadius: '10px', padding: '1.5rem' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
@@ -258,160 +295,7 @@ export default function MemberView({ member: initialMember, subs, viewEmail, sel
           )}
         </div>
 
-        {/* ── Member Profile — editable ────────────────────────────────────── */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
-          <h2 style={{ fontSize: '11px', fontWeight: 600, color: GRAY.text, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Member Profile</h2>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            {saveMsg && (
-              <span style={{ fontSize: '12px', color: saveMsg.startsWith('Error') ? '#dc2626' : GREEN.text, background: saveMsg.startsWith('Error') ? '#fef2f2' : GREEN.bg, border: `1px solid ${saveMsg.startsWith('Error') ? '#fecaca' : GREEN.border}`, padding: '4px 10px', borderRadius: '6px' }}>
-                {saveMsg}
-              </span>
-            )}
-            {!editing ? (
-              <button onClick={() => setEditing(true)}
-                style={{ fontSize: '12px', padding: '5px 14px', borderRadius: '6px', border: `1px solid ${GRAY.border}`, background: 'white', cursor: 'pointer', fontWeight: 500, color: '#374151' }}>
-                ✏ Edit
-              </button>
-            ) : (
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <button onClick={handleCancel} disabled={saving}
-                  style={{ fontSize: '12px', padding: '5px 14px', borderRadius: '6px', border: `1px solid ${GRAY.border}`, background: 'white', cursor: 'pointer', color: GRAY.text }}>
-                  Cancel
-                </button>
-                <button onClick={handleSave} disabled={saving}
-                  style={{ fontSize: '12px', padding: '5px 14px', borderRadius: '6px', border: 'none', background: NSSA.dark, color: 'white', cursor: saving ? 'not-allowed' : 'pointer', fontWeight: 600, opacity: saving ? 0.7 : 1 }}>
-                  {saving ? 'Saving…' : 'Save Changes'}
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div style={{ background: 'white', border: `1px solid ${editing ? NSSA.medium : GRAY.border}`, borderRadius: '10px', padding: '1.5rem', marginBottom: '2rem', transition: 'border-color 0.2s' }}>
-
-          {editing ? (
-            /* ── Edit mode ───────────────────────────────────────────────── */
-            <>
-              <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'flex-start', marginBottom: '1.25rem' }}>
-                {/* Photo (display only in admin edit) */}
-                <div style={{ flexShrink: 0 }}>
-                  {member.profile_photo ? (
-                    <img src={member.profile_photo} alt={fullName}
-                      style={{ width: '100px', height: '103px', objectFit: 'cover', objectPosition: 'top', borderRadius: '8px', border: `1px solid ${GRAY.border}` }} />
-                  ) : (
-                    <div style={{ width: '100px', height: '103px', borderRadius: '8px', background: NSSA.dark, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: '32px', fontWeight: 700 }}>
-                      {member.first_name?.[0] || '?'}
-                    </div>
-                  )}
-                  <p style={{ fontSize: '10px', color: GRAY.text, textAlign: 'center', marginTop: '4px' }}>Photo via portal</p>
-                </div>
-
-                <div style={{ flex: 1 }}>
-                  <div style={twoCol}>
-                    <Input label="First Name" value={form.first_name} onChange={handle('first_name')} />
-                    <Input label="Last Name"  value={form.last_name}  onChange={handle('last_name')} />
-                  </div>
-                  <div style={twoCol}>
-                    <Input label="Job Title" value={form.job_title} onChange={handle('job_title')} />
-                    <Input label="Company"   value={form.company}   onChange={handle('company')} />
-                  </div>
-                  <div style={twoCol}>
-                    <Input label="Phone"   value={form.phone}   onChange={handle('phone')} />
-                    <Input label="Website" value={form.website} onChange={handle('website')} />
-                  </div>
-                </div>
-              </div>
-
-              <Input label="Street Address" value={form.address} onChange={handle('address')} />
-              <div style={threeCol}>
-                <Input label="City"  value={form.city}  onChange={handle('city')} />
-                <Input label="State" value={form.state} onChange={handle('state')} />
-                <Input label="Zip"   value={form.zip}   onChange={handle('zip')} />
-              </div>
-
-              <Input label="Bio (HTML supported)" value={form.bio} onChange={handle('bio')} textarea
-                hint="HTML tags like <p> are rendered on the profile page." />
-              <Input label="Financial Disclosure" value={form.financial_disclosure} onChange={handle('financial_disclosure')} textarea />
-            </>
-          ) : (
-            /* ── View mode ───────────────────────────────────────────────── */
-            <>
-              <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'flex-start', marginBottom: member.bio || member.financial_disclosure || member.address ? '1.25rem' : 0 }}>
-                <div style={{ flexShrink: 0 }}>
-                  {member.profile_photo ? (
-                    <img src={member.profile_photo} alt={fullName}
-                      style={{ width: '130px', height: '134px', objectFit: 'cover', objectPosition: 'top', borderRadius: '8px', border: `1px solid ${GRAY.border}` }} />
-                  ) : (
-                    <div style={{ width: '130px', height: '134px', borderRadius: '8px', background: NSSA.dark, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: '40px', fontWeight: 700 }}>
-                      {member.first_name?.[0] || '?'}
-                    </div>
-                  )}
-                </div>
-
-                <div style={{ flex: 1 }}>
-                  <h3 style={{ fontSize: '20px', fontWeight: 700, color: '#111', marginBottom: '3px' }}>{fullName}</h3>
-                  {(member.job_title || member.company) && (
-                    <p style={{ fontSize: '13px', color: GRAY.text, marginBottom: '2px' }}>
-                      {[member.job_title, member.company].filter(Boolean).join(' · ')}
-                    </p>
-                  )}
-                  {(member.city || member.state) && (
-                    <p style={{ fontSize: '12px', color: GRAY.text, marginBottom: '10px' }}>
-                      {[member.city, member.state].filter(Boolean).join(', ')}
-                    </p>
-                  )}
-                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '10px' }}>
-                    {member.nssa_certified && (
-                      <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', background: '#eff6ff', color: NSSA.medium, border: `1px solid ${NSSA.light}` }}>
-                        NSSA® Certified{member.nssa_number ? ` #${member.nssa_number}` : ''}
-                      </span>
-                    )}
-                    {member.irmaa_certified && (
-                      <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', background: '#fef2f2', color: IRMAA.dark, border: `1px solid ${IRMAA.light}` }}>
-                        IRMAACP™ Certified{member.irmaa_number ? ` #${member.irmaa_number}` : ''}
-                      </span>
-                    )}
-                  </div>
-                  <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: '12px', color: GRAY.text }}>{viewEmail}</span>
-                    {member.phone && <span style={{ fontSize: '12px', color: GRAY.text }}>📞 {member.phone}</span>}
-                    {member.website && (
-                      <a href={member.website} target="_blank" rel="noopener noreferrer" style={{ fontSize: '12px', color: NSSA.medium, textDecoration: 'none' }}>
-                        🌐 {member.website.replace(/^https?:\/\//, '')}
-                      </a>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {member.bio && (
-                <div style={{ borderTop: `1px solid ${GRAY.bg}`, paddingTop: '1.25rem' }}>
-                  <p style={{ fontSize: '11px', fontWeight: 600, color: GRAY.text, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '10px' }}>Bio</p>
-                  <div style={{ fontSize: '13px', color: '#374151', lineHeight: 1.7, maxWidth: '700px' }}
-                    dangerouslySetInnerHTML={{ __html: member.bio }} />
-                </div>
-              )}
-
-              {member.financial_disclosure && (
-                <div style={{ borderTop: `1px solid ${GRAY.bg}`, paddingTop: '1rem', marginTop: '1rem' }}>
-                  <p style={{ fontSize: '11px', fontWeight: 600, color: GRAY.text, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px' }}>Financial Disclosure</p>
-                  <p style={{ fontSize: '11px', color: GRAY.text, fontStyle: 'italic', lineHeight: 1.6 }}>{member.financial_disclosure}</p>
-                </div>
-              )}
-
-              {(member.address || member.city) && (
-                <div style={{ borderTop: `1px solid ${GRAY.bg}`, paddingTop: '1rem', marginTop: '1rem' }}>
-                  <p style={{ fontSize: '11px', fontWeight: 600, color: GRAY.text, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px' }}>Address</p>
-                  <p style={{ fontSize: '13px', color: '#374151' }}>
-                    {[member.address, member.city, member.state, member.zip].filter(Boolean).join(', ')}
-                  </p>
-                </div>
-              )}
-            </>
-          )}
-        </div>
-
-        {/* CE Submission History */}
+        {/* ── CE Submission History (moved up) ────────────────────────────── */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
           <h2 style={{ fontSize: '11px', fontWeight: 600, color: GRAY.text, textTransform: 'uppercase', letterSpacing: '0.08em' }}>CE Submission History</h2>
           <select value={yearFilter} onChange={e => setYearFilter(e.target.value)}
@@ -421,7 +305,7 @@ export default function MemberView({ member: initialMember, subs, viewEmail, sel
           </select>
         </div>
 
-        <div style={{ background: 'white', border: `1px solid ${GRAY.border}`, borderRadius: '10px', overflow: 'hidden', marginBottom: '1.5rem' }}>
+        <div style={{ background: 'white', border: `1px solid ${GRAY.border}`, borderRadius: '10px', overflow: 'hidden', marginBottom: '2rem' }}>
           {filteredSubs.length === 0 ? (
             <p style={{ padding: '2.5rem', textAlign: 'center', color: GRAY.text, fontSize: '13px' }}>No submissions found.</p>
           ) : (
@@ -461,6 +345,178 @@ export default function MemberView({ member: initialMember, subs, viewEmail, sel
                 })}
               </tbody>
             </table>
+          )}
+        </div>
+
+        {/* ── Member Profile ───────────────────────────────────────────────── */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
+          <h2 style={{ fontSize: '11px', fontWeight: 600, color: GRAY.text, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Member Profile</h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            {saveMsg && (
+              <span style={{ fontSize: '12px', color: saveMsg.startsWith('Error') ? '#dc2626' : GREEN.text, background: saveMsg.startsWith('Error') ? '#fef2f2' : GREEN.bg, border: `1px solid ${saveMsg.startsWith('Error') ? '#fecaca' : GREEN.border}`, padding: '4px 10px', borderRadius: '6px' }}>
+                {saveMsg}
+              </span>
+            )}
+            {!editing ? (
+              <button onClick={() => setEditing(true)}
+                style={{ fontSize: '12px', padding: '5px 14px', borderRadius: '6px', border: `1px solid ${GRAY.border}`, background: 'white', cursor: 'pointer', fontWeight: 500, color: '#374151' }}>
+                ✏ Edit
+              </button>
+            ) : (
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button onClick={handleCancel} disabled={saving}
+                  style={{ fontSize: '12px', padding: '5px 14px', borderRadius: '6px', border: `1px solid ${GRAY.border}`, background: 'white', cursor: 'pointer', color: GRAY.text }}>
+                  Cancel
+                </button>
+                <button onClick={handleSave} disabled={saving} style={btn(NSSA.dark, saving)}>
+                  {saving ? 'Saving…' : 'Save Changes'}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div style={{ background: 'white', border: `1px solid ${editing ? NSSA.medium : GRAY.border}`, borderRadius: '10px', padding: '1.5rem', marginBottom: '2rem', transition: 'border-color 0.2s' }}>
+          {editing ? (
+            <>
+              <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'flex-start', marginBottom: '1.25rem' }}>
+
+                {/* Photo upload panel */}
+                <div style={{ flexShrink: 0, width: '195px' }}>
+                  {photoPreview ? (
+                    <img src={photoPreview} alt="Preview"
+                      style={{ width: '195px', height: '201px', objectFit: 'cover', objectPosition: 'top', borderRadius: '8px', border: `2px dashed ${NSSA.medium}`, marginBottom: '8px' }} />
+                  ) : member.profile_photo ? (
+                    <img src={member.profile_photo} alt={fullName}
+                      style={{ width: '195px', height: '201px', objectFit: 'cover', objectPosition: 'top', borderRadius: '8px', border: `1px solid ${GRAY.border}`, marginBottom: '8px' }} />
+                  ) : (
+                    <div style={{ width: '195px', height: '201px', borderRadius: '8px', background: NSSA.dark, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: '48px', fontWeight: 700, marginBottom: '8px' }}>
+                      {member.first_name?.[0] || '?'}
+                    </div>
+                  )}
+
+                  <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp"
+                    onChange={handleFileSelect} style={{ display: 'none' }} />
+
+                  <button onClick={() => fileRef.current?.click()} type="button"
+                    style={{ width: '100%', fontSize: '11px', padding: '5px', borderRadius: '5px', border: `1px solid ${GRAY.border}`, background: 'white', cursor: 'pointer', marginBottom: '6px' }}>
+                    {selectedFile ? '↺ Change Photo' : '↑ Upload Photo'}
+                  </button>
+
+                  {selectedFile && !photoLoading && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                      <button onClick={() => handlePhotoUpload(true)} type="button"
+                        style={{ ...btn(NSSA.dark, false), width: '100%', fontSize: '11px', padding: '5px' }}>
+                        ✦ AI Enhance
+                      </button>
+                      <button onClick={() => handlePhotoUpload(false)} type="button"
+                        style={{ width: '100%', fontSize: '11px', padding: '5px', borderRadius: '5px', border: `1px solid ${GRAY.border}`, background: '#374151', color: 'white', cursor: 'pointer', fontWeight: 500 }}>
+                        ↑ Upload As-Is
+                      </button>
+                    </div>
+                  )}
+                  {photoLoading && (
+                    <p style={{ fontSize: '11px', color: NSSA.medium, textAlign: 'center' }}>
+                      {photoLoading === 'ai' ? '✦ Enhancing…' : 'Uploading…'}
+                    </p>
+                  )}
+                  {photoMsg && (
+                    <p style={{ fontSize: '11px', color: photoMsg.startsWith('Error') ? '#dc2626' : GREEN.text, marginTop: '4px', textAlign: 'center' }}>{photoMsg}</p>
+                  )}
+                </div>
+
+                {/* Text fields */}
+                <div style={{ flex: 1 }}>
+                  <div style={twoCol}>
+                    <Input label="First Name" value={form.first_name} onChange={handle('first_name')} />
+                    <Input label="Last Name"  value={form.last_name}  onChange={handle('last_name')} />
+                  </div>
+                  <div style={twoCol}>
+                    <Input label="Job Title" value={form.job_title} onChange={handle('job_title')} />
+                    <Input label="Company"   value={form.company}   onChange={handle('company')} />
+                  </div>
+                  <div style={twoCol}>
+                    <Input label="Phone"   value={form.phone}   onChange={handle('phone')} />
+                    <Input label="Website" value={form.website} onChange={handle('website')} />
+                  </div>
+                </div>
+              </div>
+
+              <Input label="Street Address" value={form.address} onChange={handle('address')} />
+              <div style={threeCol}>
+                <Input label="City"  value={form.city}  onChange={handle('city')} />
+                <Input label="State" value={form.state} onChange={handle('state')} />
+                <Input label="Zip"   value={form.zip}   onChange={handle('zip')} />
+              </div>
+
+              <BioEditor html={form.bio} onChange={val => setForm(f => ({ ...f, bio: val }))} />
+              <Input label="Financial Disclosure" value={form.financial_disclosure} onChange={handle('financial_disclosure')} textarea />
+            </>
+          ) : (
+            <>
+              <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'flex-start', marginBottom: member.bio || member.financial_disclosure || member.address ? '1.25rem' : 0 }}>
+                <div style={{ flexShrink: 0 }}>
+                  {member.profile_photo ? (
+                    <img src={member.profile_photo} alt={fullName}
+                      style={{ width: '195px', height: '201px', objectFit: 'cover', objectPosition: 'top', borderRadius: '8px', border: `1px solid ${GRAY.border}` }} />
+                  ) : (
+                    <div style={{ width: '195px', height: '201px', borderRadius: '8px', background: NSSA.dark, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: '48px', fontWeight: 700 }}>
+                      {member.first_name?.[0] || '?'}
+                    </div>
+                  )}
+                </div>
+                <div style={{ flex: 1 }}>
+                  <h3 style={{ fontSize: '20px', fontWeight: 700, color: '#111', marginBottom: '3px' }}>{fullName}</h3>
+                  {(member.job_title || member.company) && (
+                    <p style={{ fontSize: '13px', color: GRAY.text, marginBottom: '2px' }}>{[member.job_title, member.company].filter(Boolean).join(' · ')}</p>
+                  )}
+                  {(member.city || member.state) && (
+                    <p style={{ fontSize: '12px', color: GRAY.text, marginBottom: '10px' }}>{[member.city, member.state].filter(Boolean).join(', ')}</p>
+                  )}
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '10px' }}>
+                    {member.nssa_certified && (
+                      <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', background: '#eff6ff', color: NSSA.medium, border: `1px solid ${NSSA.light}` }}>
+                        NSSA® Certified{member.nssa_number ? ` #${member.nssa_number}` : ''}
+                      </span>
+                    )}
+                    {member.irmaa_certified && (
+                      <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', background: '#fef2f2', color: IRMAA.dark, border: `1px solid ${IRMAA.light}` }}>
+                        IRMAACP™ Certified{member.irmaa_number ? ` #${member.irmaa_number}` : ''}
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: '12px', color: GRAY.text }}>{viewEmail}</span>
+                    {member.phone && <span style={{ fontSize: '12px', color: GRAY.text }}>📞 {member.phone}</span>}
+                    {member.website && (
+                      <a href={member.website} target="_blank" rel="noopener noreferrer" style={{ fontSize: '12px', color: NSSA.medium, textDecoration: 'none' }}>
+                        🌐 {member.website.replace(/^https?:\/\//, '')}
+                      </a>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {member.bio && (
+                <div style={{ borderTop: `1px solid ${GRAY.bg}`, paddingTop: '1.25rem' }}>
+                  <p style={{ fontSize: '11px', fontWeight: 600, color: GRAY.text, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '10px' }}>Bio</p>
+                  <div style={{ fontSize: '13px', color: '#374151', lineHeight: 1.7, maxWidth: '700px' }}
+                    dangerouslySetInnerHTML={{ __html: member.bio }} />
+                </div>
+              )}
+              {member.financial_disclosure && (
+                <div style={{ borderTop: `1px solid ${GRAY.bg}`, paddingTop: '1rem', marginTop: '1rem' }}>
+                  <p style={{ fontSize: '11px', fontWeight: 600, color: GRAY.text, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px' }}>Financial Disclosure</p>
+                  <p style={{ fontSize: '11px', color: GRAY.text, fontStyle: 'italic', lineHeight: 1.6 }}>{member.financial_disclosure}</p>
+                </div>
+              )}
+              {(member.address || member.city) && (
+                <div style={{ borderTop: `1px solid ${GRAY.bg}`, paddingTop: '1rem', marginTop: '1rem' }}>
+                  <p style={{ fontSize: '11px', fontWeight: 600, color: GRAY.text, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px' }}>Address</p>
+                  <p style={{ fontSize: '13px', color: '#374151' }}>{[member.address, member.city, member.state, member.zip].filter(Boolean).join(', ')}</p>
+                </div>
+              )}
+            </>
           )}
         </div>
 
