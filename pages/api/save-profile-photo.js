@@ -17,6 +17,12 @@ Frame subject from mid-chest to top of head, occupying approximately 60-70% of t
 
 const HEADSHOT_NEGATIVE = `face swap, altered identity, different person, beauty filter, glamour photography, fashion model pose, cartoon, illustration, painting, anime, unrealistic skin, plastic skin, excessive retouching, distorted facial features, asymmetrical eyes, exaggerated smile, extreme sharpening, low resolution, pixelation, artifacts, text, watermark, logo, cropped forehead, cropped chin, tight crop, selfie framing, dramatic cinematic lighting, fantasy background`
 
+function slugify(str) {
+  return (str || '').toLowerCase().trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end()
 
@@ -30,15 +36,35 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Missing email or photoUrl' })
   }
 
+  // ── Fetch member name + job title for filename and alt text ───────────────
+  const { data: member } = await supabase
+    .from('members')
+    .select('first_name, last_name, job_title')
+    .eq('email', email)
+    .single()
+
+  const firstName = slugify(member?.first_name)
+  const lastName  = slugify(member?.last_name)
+  const jobTitle  = slugify(member?.job_title)
+  const baseName  = [firstName, lastName, jobTitle].filter(Boolean).join('-')
+  const filename  = `${baseName || slugify(email)}.jpg`
+
+  const altText = [
+    member?.first_name,
+    member?.last_name,
+    member?.job_title ? `- ${member.job_title}` : null,
+    '| Professional Headshot'
+  ].filter(Boolean).join(' ')
+
   const falKey = process.env.FAL_API_KEY
 
   try {
     let imageUrl = photoUrl
 
-    // ── Step 1: Transform with FLUX.1 Kontext via fal.ai ─────────────────────
+    // ── Step 1: Transform with FLUX.1 Kontext [pro] via fal.ai ───────────────
     if (falKey) {
       try {
-        console.log(`[photo] Submitting to FLUX.1 Kontext for ${email}...`)
+        console.log(`[photo] Submitting to FLUX.1 Kontext [pro] for ${email}...`)
 
         const falRes = await fetch('https://fal.run/fal-ai/flux-pro/kontext', {
           method: 'POST',
@@ -97,9 +123,7 @@ export default async function handler(req, res) {
     console.log(`[photo] Resized ✓`)
 
     // ── Step 4: Upload to Supabase Storage ────────────────────────────────────
-    const safeEmail  = email.toLowerCase().replace(/[^a-z0-9]/g, '-')
-    const filename   = `${safeEmail}-${Date.now()}.jpg`
-
+    console.log(`[photo] Uploading as ${filename}...`)
     const { error: uploadError } = await supabase.storage
       .from('profile-photos')
       .upload(filename, imgBuffer, { contentType: 'image/jpeg', upsert: true })
@@ -125,7 +149,13 @@ export default async function handler(req, res) {
     }
 
     console.log(`[photo] ✓ Complete for ${email} → ${permanentUrl}`)
-    return res.status(200).json({ ok: true, email, profile_photo: permanentUrl })
+    return res.status(200).json({
+      ok: true,
+      email,
+      filename,
+      profile_photo: permanentUrl,
+      alt_text: altText
+    })
 
   } catch (err) {
     console.error('[photo] Unexpected error:', err.message)
