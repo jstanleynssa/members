@@ -1,9 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
 
-const TARGET_WIDTH  = 676
-const TARGET_HEIGHT = 696
-const TARGET_DPI    = 144
-
 const HEADSHOT_PROMPT = `Convert the uploaded photo into a professional executive headshot suitable for LinkedIn profiles, corporate websites, speaker biographies, advisor directories, and professional marketing materials.
 Preserve the person's exact identity, facial features, age, ethnicity, hairstyle, expression, and distinguishing characteristics. Do not materially alter the person's appearance or create a different face.
 Recompose the image into a square (1:1) format. Center the subject naturally within the frame and ensure there is comfortable negative space around the head and shoulders. The composition should resemble a professionally photographed corporate portrait rather than a tightly cropped selfie.
@@ -30,14 +26,12 @@ export default async function handler(req, res) {
     process.env.SUPABASE_SERVICE_ROLE_KEY
   )
 
-  // Accepts either a photoUrl (Zapier/S3) or imageData (base64 from portal upload)
   const { email, photoUrl, imageData, mimeType, enhance = true } = req.body
-
   if (!email || (!photoUrl && !imageData)) {
     return res.status(400).json({ error: 'Missing email and photo source' })
   }
 
-  // Fetch member details for filename and alt text
+  // ── Fetch member details for filename and alt text ────────────────────────
   const { data: member } = await supabase
     .from('members')
     .select('first_name, last_name, job_title, city')
@@ -62,24 +56,21 @@ export default async function handler(req, res) {
   const falKey = process.env.FAL_API_KEY
 
   try {
-    let imageUrl  = photoUrl  || null
     let imgBuffer = imageData ? Buffer.from(imageData, 'base64') : null
+    let finalMime = mimeType || 'image/jpeg'
+    let imageUrl  = photoUrl || null
 
-    // ── Step 1: If base64 provided, upload to temp Supabase path for fal.ai ──
+    // ── Step 1: If base64 upload, store as temp file to get a public URL ─────
     if (imageData && enhance && falKey) {
       const tempPath = `temp/${slugify(email)}-${Date.now()}.jpg`
-      const tempType = mimeType || 'image/jpeg'
-      const { error: tempErr } = await supabase.storage
+      await supabase.storage
         .from('profile-photos')
-        .upload(tempPath, imgBuffer, { contentType: tempType, upsert: true })
-
-      if (!tempErr) {
-        const { data: tempUrl } = supabase.storage
-          .from('profile-photos')
-          .getPublicUrl(tempPath)
-        imageUrl = tempUrl.publicUrl
-        console.log(`[photo] Temp upload for fal.ai ✓`)
-      }
+        .upload(tempPath, imgBuffer, { contentType: finalMime, upsert: true })
+      const { data: tempUrlData } = supabase.storage
+        .from('profile-photos')
+        .getPublicUrl(tempPath)
+      imageUrl = tempUrlData.publicUrl
+      console.log(`[photo] Temp upload for fal.ai ✓`)
     }
 
     // ── Step 2: AI enhancement via FLUX.1 Kontext [pro] ──────────────────────
@@ -94,6 +85,7 @@ export default async function handler(req, res) {
             prompt: HEADSHOT_PROMPT,
             negative_prompt: HEADSHOT_NEGATIVE,
             aspect_ratio: '1:1',
+            image_size: { width: 676, height: 696 },
             guidance_scale: 3.5,
             num_inference_steps: 28,
             output_format: 'jpeg'
@@ -107,6 +99,7 @@ export default async function handler(req, res) {
             const dlRes = await fetch(outputUrl)
             if (dlRes.ok) {
               imgBuffer = Buffer.from(await dlRes.arrayBuffer())
+              finalMime = 'image/jpeg'
               console.log(`[photo] FLUX.1 Kontext complete ✓`)
             }
           }
@@ -119,27 +112,18 @@ export default async function handler(req, res) {
       }
     }
 
-    // ── Step 3: If we still only have a URL (no buffer yet), download it ──────
+    // ── Step 3: If no buffer yet, download from URL ───────────────────────────
     if (!imgBuffer && imageUrl) {
       console.log(`[photo] Downloading image...`)
       const dlRes = await fetch(imageUrl)
       if (!dlRes.ok) return res.status(400).json({ error: `Image download failed: ${dlRes.status}` })
       imgBuffer = Buffer.from(await dlRes.arrayBuffer())
+      finalMime = dlRes.headers.get('content-type') || 'image/jpeg'
     }
 
     if (!imgBuffer) return res.status(400).json({ error: 'No image data available' })
 
-    // ── Step 4: Resize to 676×696 at 144ppi ──────────────────────────────────
-    console.log(`[photo] Resizing to ${TARGET_WIDTH}×${TARGET_HEIGHT} at ${TARGET_DPI}ppi...`)
-    const sharp = (await import('sharp')).default
-imgBuffer = await sharp(imgBuffer)
-      .resize(TARGET_WIDTH, TARGET_HEIGHT, { fit: 'cover', position: 'top' })
-      .withMetadata({ density: TARGET_DPI })
-      .jpeg({ quality: 92 })
-      .toBuffer()
-    console.log(`[photo] Resized ✓`)
-
-    // ── Step 5: Upload final image to Supabase Storage ────────────────────────
+    // ── Step 4: Upload to Supabase Storage ────────────────────────────────────
     console.log(`[photo] Uploading as ${filename}...`)
     const { error: uploadError } = await supabase.storage
       .from('profile-photos')
@@ -150,19 +134,13 @@ imgBuffer = await sharp(imgBuffer)
     const { data: urlData } = supabase.storage.from('profile-photos').getPublicUrl(filename)
     const permanentUrl = urlData.publicUrl
 
-    // ── Step 6: Update member record ──────────────────────────────────────────
+    // ── Step 5: Update member record ──────────────────────────────────────────
     const { error: updateError } = await supabase
       .from('members')
       .update({ profile_photo: permanentUrl })
       .eq('email', email)
 
     if (updateError) return res.status(500).json({ error: `Member update failed: ${updateError.message}` })
-
-    // Clean up temp file if created
-    if (imageData && enhance) {
-      const tempPath = `temp/${slugify(email)}-*.jpg`
-      await supabase.storage.from('profile-photos').remove([tempPath]).catch(() => {})
-    }
 
     console.log(`[photo] ✓ Complete for ${email} → ${permanentUrl}`)
     return res.status(200).json({ ok: true, email, filename, profile_photo: permanentUrl, alt_text: altText })
