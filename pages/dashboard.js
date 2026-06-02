@@ -1,12 +1,31 @@
 import { createServerSupabaseClient } from '@supabase/auth-helpers-nextjs'
 import { createClient } from '@supabase/supabase-js'
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
+import { useRouter } from 'next/router'
 import Link from 'next/link'
 
 const NSSA  = { dark: '#13405E', medium: '#1C80BC', light: '#8ECAEE' }
 const IRMAA = { dark: '#AF2A35', medium: '#DE5B63', light: '#ED8E8E' }
 const GRAY  = { text: '#6b7280', bg: '#f3f4f6', border: '#e5e7eb' }
 const GREEN = { bg: '#f0fdf4', text: '#15803d', border: '#bbf7d0' }
+const RED   = { bg: '#fef2f2', text: '#dc2626', border: '#fecaca' }
+
+// Strip HTML tags so legacy bios stored with <p>...</p> don't render as
+// literal text in the plain-text textarea / display. Collapses block tags
+// to newlines, removes the rest, and decodes a few common entities.
+function stripHtml(str) {
+  if (!str) return ''
+  return str
+    .replace(/<\/(p|div|br)\s*>/gi, '\n')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
 
 export async function getServerSideProps(context) {
   const supabaseServer = createServerSupabaseClient(context)
@@ -20,7 +39,7 @@ export async function getServerSideProps(context) {
 
   const { data: member } = await supabaseAdmin
     .from('members')
-    .select('email, first_name, last_name, nssa_certified, irmaa_certified, nssa_cert_date, irmaa_cert_date, nssa_number, irmaa_number, profile_photo, job_title, company, city, state, phone, website, bio, is_active')
+    .select('email, first_name, last_name, nssa_certified, irmaa_certified, nssa_cert_date, irmaa_cert_date, nssa_number, irmaa_number, profile_photo, job_title, company, address, city, state, zip, phone, website, bio, financial_disclosure, is_active')
     .eq('email', session.user.email)
     .single()
 
@@ -98,11 +117,186 @@ function StatusPill({ status, hours }) {
   )
 }
 
+// ── Inline profile form helpers (ported from /profile/edit) ───────────────
+function Field({ label, name, value, onChange, type = 'text', placeholder, hint, textarea, required }) {
+  const inputStyle = {
+    width: '100%', padding: '9px 12px', fontSize: '14px',
+    border: `1px solid ${GRAY.border}`, borderRadius: '6px',
+    outline: 'none', boxSizing: 'border-box',
+    fontFamily: 'system-ui, sans-serif', background: 'white',
+    resize: textarea ? 'vertical' : undefined,
+    minHeight: textarea ? '100px' : undefined,
+  }
+  return (
+    <div style={{ marginBottom: '1rem' }}>
+      <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, color: '#374151', marginBottom: '5px' }}>
+        {label}{required && <span style={{ color: '#dc2626', marginLeft: 2 }}>*</span>}
+      </label>
+      {textarea
+        ? <textarea name={name} value={value || ''} onChange={onChange} placeholder={placeholder} style={inputStyle} />
+        : <input type={type} name={name} value={value || ''} onChange={onChange} placeholder={placeholder} style={inputStyle} />
+      }
+      {hint && <p style={{ fontSize: '11px', color: GRAY.text, marginTop: '4px' }}>{hint}</p>}
+    </div>
+  )
+}
+
+function Section({ title, children }) {
+  return (
+    <div style={{ marginBottom: '2rem' }}>
+      <h3 style={{ fontSize: '13px', fontWeight: 600, color: NSSA.dark, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '1rem', paddingBottom: '6px', borderBottom: `2px solid ${NSSA.light}` }}>
+        {title}
+      </h3>
+      {children}
+    </div>
+  )
+}
+
 export default function Dashboard({ member, subs, selectedYear, availableYears, currentYear, nssaHours, irmaaHours, nssaStatus, irmaaStatus, daysLeft, userEmail }) {
+  const router = useRouter()
   const [yearFilter, setYearFilter] = useState(selectedYear)
 
   const filteredSubs = subs.filter(s => s.year === yearFilter)
   const isAdmin = userEmail === 'jstanley@nssapros.com'
+
+  // ── Profile form state (seeded from SSR member props) ───────────────────
+  const [form, setForm] = useState({
+    first_name:           member.first_name           || '',
+    last_name:            member.last_name            || '',
+    job_title:            member.job_title            || '',
+    company:              member.company              || '',
+    address:              member.address              || '',
+    city:                 member.city                 || '',
+    state:                member.state                || '',
+    zip:                  member.zip                  || '',
+    phone:                member.phone                || '',
+    website:              member.website              || '',
+    bio:                  stripHtml(member.bio)       || '',
+    financial_disclosure: member.financial_disclosure || '',
+  })
+
+  const [dirty, setDirty]     = useState(false)
+  const [saving, setSaving]   = useState(false)
+  const [saved, setSaved]     = useState(false)
+  const [saveError, setSaveError] = useState(null)
+
+  // ── Photo state ─────────────────────────────────────────────────────────
+  const fileInputRef = useRef(null)
+  const [currentPhoto, setCurrentPhoto] = useState(member.profile_photo || null)
+  const [selectedFile, setSelectedFile] = useState(null)
+  const [photoPreview, setPhotoPreview] = useState(null)
+  const [photoLoading, setPhotoLoading] = useState(null) // 'asis' | 'ai' | null
+  const [photoSuccess, setPhotoSuccess] = useState(null)
+  const [photoError, setPhotoError]     = useState(null)
+
+  // ── Unsaved-changes guard ────────────────────────────────────────────────
+  // Browser/tab close + hard reload
+  useEffect(() => {
+    function handleBeforeUnload(e) {
+      if (!dirty) return
+      e.preventDefault()
+      e.returnValue = ''
+      return ''
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [dirty])
+
+  // In-app Next.js navigation (Dashboard link, Admin link, etc.)
+  useEffect(() => {
+    function handleRouteChange() {
+      if (!dirty) return
+      if (!window.confirm('You have unsaved profile changes. Leave anyway?')) {
+        router.events.emit('routeChangeError')
+        // Abort the route change
+        throw 'routeChange aborted by unsaved-changes guard'
+      }
+    }
+    router.events.on('routeChangeStart', handleRouteChange)
+    return () => router.events.off('routeChangeStart', handleRouteChange)
+  }, [dirty, router.events])
+
+  function handleChange(e) {
+    const { name, value } = e.target
+    setForm(f => ({ ...f, [name]: value }))
+    setDirty(true)
+    setSaved(false)
+  }
+
+  function handleFileSelect(e) {
+    const file = e.target.files[0]
+    if (!file) return
+    setSelectedFile(file)
+    setPhotoSuccess(null)
+    setPhotoError(null)
+    const reader = new FileReader()
+    reader.onload = ev => setPhotoPreview(ev.target.result)
+    reader.readAsDataURL(file)
+  }
+
+  async function handlePhotoUpload(enhance) {
+    if (!selectedFile) return
+    setPhotoLoading(enhance ? 'ai' : 'asis')
+    setPhotoError(null)
+    setPhotoSuccess(null)
+
+    try {
+      const base64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = e => resolve(e.target.result.split(',')[1])
+        reader.onerror = reject
+        reader.readAsDataURL(selectedFile)
+      })
+
+      const res = await fetch('/api/save-profile-photo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: userEmail,
+          imageData: base64,
+          mimeType: selectedFile.type || 'image/jpeg',
+          enhance
+        })
+      })
+
+      const data = await res.json()
+      if (!res.ok || !data.ok) throw new Error(data.error || 'Upload failed')
+
+      setCurrentPhoto(data.profile_photo + '?t=' + Date.now())
+      setSelectedFile(null)
+      setPhotoPreview(null)
+      setPhotoSuccess(enhance ? 'AI-enhanced photo saved!' : 'Photo saved!')
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    } catch (err) {
+      setPhotoError(err.message)
+    } finally {
+      setPhotoLoading(null)
+    }
+  }
+
+  async function handleSave(e) {
+    e.preventDefault()
+    setSaving(true)
+    setSaved(false)
+    setSaveError(null)
+
+    try {
+      const res = await fetch('/api/profile/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form)
+      })
+      const data = await res.json()
+      if (!res.ok || !data.ok) throw new Error(data.error || 'Save failed')
+      setDirty(false)
+      setSaved(true)
+      setTimeout(() => setSaved(false), 4000)
+    } catch (err) {
+      setSaveError(err.message)
+    } finally {
+      setSaving(false)
+    }
+  }
 
   function statusColor(s) {
     if (s === 'approved') return { bg: '#f0fdf4', color: '#15803d', border: '#bbf7d0' }
@@ -111,6 +305,17 @@ export default function Dashboard({ member, subs, selectedYear, availableYears, 
   }
 
   const td = { padding: '10px 14px', fontSize: '13px', verticalAlign: 'middle', borderTop: `1px solid ${GRAY.bg}` }
+
+  const btn = (color, disabled) => ({
+    padding: '9px 20px', fontSize: '13px', fontWeight: 600,
+    background: disabled ? GRAY.bg : color,
+    color: disabled ? GRAY.text : 'white',
+    border: 'none', borderRadius: '6px',
+    cursor: disabled ? 'not-allowed' : 'pointer',
+    opacity: disabled ? 0.7 : 1
+  })
+
+  const twoCol = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 1rem' }
 
   return (
     <div style={{ minHeight: '100vh', background: '#f5f5f5', fontFamily: 'system-ui, sans-serif' }}>
@@ -306,95 +511,190 @@ export default function Dashboard({ member, subs, selectedYear, availableYears, 
           </div>
         </div>
 
-        {/* Member Profile */}
+        {/* ── Member Profile (inline editable) ─────────────────────────────── */}
         <div>
-          <h2 style={{ fontSize: '11px', fontWeight: 600, color: GRAY.text, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '1rem' }}>
-            Member Profile
-          </h2>
-          <div style={{ background: 'white', border: `1px solid ${GRAY.border}`, borderRadius: '10px', padding: '1.5rem', display: 'flex', gap: '1.5rem', alignItems: 'flex-start' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
+            <h2 style={{ fontSize: '11px', fontWeight: 600, color: GRAY.text, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+              Member Profile
+            </h2>
 
-            {/* Photo */}
-            <div style={{ flexShrink: 0 }}>
-              {member.profile_photo ? (
-                <img
-                  src={member.profile_photo}
-                  alt={`${member.first_name} ${member.last_name}`}
-                  style={{ width: '100px', height: '103px', objectFit: 'cover', objectPosition: 'top', borderRadius: '8px', border: `1px solid ${GRAY.border}` }}
+            {/* Cert badges (read-only) */}
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+              {member.nssa_certified && (
+                <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', background: '#eff6ff', color: NSSA.medium, border: `1px solid ${NSSA.light}` }}>
+                  NSSA® Certified{member.nssa_number ? ` #${member.nssa_number}` : ''}
+                </span>
+              )}
+              {member.irmaa_certified && (
+                <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', background: '#fef2f2', color: IRMAA.dark, border: `1px solid ${IRMAA.light}` }}>
+                  IRMAACP™ Certified{member.irmaa_number ? ` #${member.irmaa_number}` : ''}
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 300px', gap: '1.5rem', alignItems: 'start' }}>
+
+            {/* LEFT: editable form */}
+            <form onSubmit={handleSave}>
+              <div style={{ background: 'white', borderRadius: '10px', border: `1px solid ${GRAY.border}`, padding: '1.5rem' }}>
+
+                <Section title="Name & Role">
+                  <div style={twoCol}>
+                    <Field label="First Name"  name="first_name"  value={form.first_name}  onChange={handleChange} required />
+                    <Field label="Last Name"   name="last_name"   value={form.last_name}   onChange={handleChange} required />
+                  </div>
+                  <div style={twoCol}>
+                    <Field label="Job Title"   name="job_title"   value={form.job_title}   onChange={handleChange} placeholder="Financial Advisor" />
+                    <Field label="Company"     name="company"     value={form.company}     onChange={handleChange} placeholder="ABC Wealth Management" />
+                  </div>
+                </Section>
+
+                <Section title="Location">
+                  <Field label="Street Address" name="address" value={form.address} onChange={handleChange} placeholder="123 Main St" />
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px 100px', gap: '0 1rem' }}>
+                    <Field label="City"  name="city"  value={form.city}  onChange={handleChange} />
+                    <Field label="State" name="state" value={form.state} onChange={handleChange} placeholder="TX" />
+                    <Field label="Zip"   name="zip"   value={form.zip}   onChange={handleChange} placeholder="75001" />
+                  </div>
+                </Section>
+
+                <Section title="Contact">
+                  <div style={twoCol}>
+                    <Field label="Office Phone" name="phone"   value={form.phone}   onChange={handleChange} placeholder="(555) 555-5555" type="tel" />
+                    <Field label="Website"      name="website" value={form.website} onChange={handleChange} placeholder="https://yoursite.com" type="url" />
+                  </div>
+                </Section>
+
+                <Section title="Professional Bio">
+                  <Field
+                    label="Bio" name="bio" value={form.bio} onChange={handleChange} textarea
+                    placeholder="Tell clients about your background, experience, and approach..."
+                    hint="This bio will be displayed on your public directory listing."
+                  />
+                </Section>
+
+                <Section title="Financial Disclosure">
+                  <Field
+                    label="Disclosure" name="financial_disclosure" value={form.financial_disclosure}
+                    onChange={handleChange} textarea
+                    placeholder="e.g. Securities offered through XYZ Member FINRA/SIPC..."
+                    hint="Optional. Displayed at the bottom of your directory profile."
+                  />
+                </Section>
+
+                {/* Save bar */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', paddingTop: '1rem', borderTop: `1px solid ${GRAY.bg}` }}>
+                  <button type="submit" disabled={saving} style={btn(NSSA.dark, saving)}>
+                    {saving ? 'Saving…' : 'Save Profile'}
+                  </button>
+                  {dirty && !saving && !saved && (
+                    <span style={{ fontSize: '12px', color: GRAY.text }}>Unsaved changes</span>
+                  )}
+                  {saved && (
+                    <span style={{ fontSize: '13px', color: GREEN.text, background: GREEN.bg, border: `1px solid ${GREEN.border}`, padding: '6px 12px', borderRadius: '6px' }}>
+                      ✓ Profile saved
+                    </span>
+                  )}
+                  {saveError && (
+                    <span style={{ fontSize: '13px', color: RED.text }}>{saveError}</span>
+                  )}
+                </div>
+              </div>
+            </form>
+
+            {/* RIGHT: photo panel (sticky) */}
+            <div style={{ position: 'sticky', top: '2rem' }}>
+              <div style={{ background: 'white', borderRadius: '10px', border: `1px solid ${GRAY.border}`, padding: '1.5rem' }}>
+                <h3 style={{ fontSize: '13px', fontWeight: 600, color: NSSA.dark, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '1.25rem', paddingBottom: '6px', borderBottom: `2px solid ${NSSA.light}` }}>
+                  Profile Photo
+                </h3>
+
+                {/* Current photo */}
+                <div style={{ marginBottom: '1.25rem', textAlign: 'center' }}>
+                  {currentPhoto ? (
+                    <img
+                      src={currentPhoto}
+                      alt="Profile photo"
+                      style={{ width: '180px', height: '185px', objectFit: 'cover', objectPosition: 'top', borderRadius: '8px', border: `1px solid ${GRAY.border}` }}
+                    />
+                  ) : (
+                    <div style={{ width: '180px', height: '185px', background: GRAY.bg, borderRadius: '8px', border: `1px solid ${GRAY.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto', color: GRAY.text, fontSize: '13px' }}>
+                      No photo yet
+                    </div>
+                  )}
+                </div>
+
+                {/* File picker */}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  onChange={handleFileSelect}
+                  style={{ display: 'none' }}
                 />
-              ) : (
-                <div style={{ width: '100px', height: '103px', borderRadius: '8px', background: NSSA.dark, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: '32px', fontWeight: 700 }}>
-                  {member.first_name?.[0] || '?'}
-                </div>
-              )}
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  style={{ ...btn(NSSA.medium, false), width: '100%', marginBottom: '1rem' }}
+                >
+                  {selectedFile ? '↺ Choose Different Photo' : '↑ Choose Photo'}
+                </button>
+
+                {/* Preview + action buttons */}
+                {photoPreview && (
+                  <div>
+                    <p style={{ fontSize: '12px', color: GRAY.text, marginBottom: '8px', textAlign: 'center' }}>Preview</p>
+                    <img
+                      src={photoPreview}
+                      alt="Preview"
+                      style={{ width: '100%', maxHeight: '200px', objectFit: 'cover', objectPosition: 'top', borderRadius: '6px', border: `1px solid ${GRAY.border}`, marginBottom: '1rem' }}
+                    />
+
+                    <p style={{ fontSize: '12px', fontWeight: 500, color: '#374151', marginBottom: '8px' }}>How would you like to upload this?</p>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <button
+                        type="button"
+                        disabled={!!photoLoading}
+                        onClick={() => handlePhotoUpload(false)}
+                        style={{ ...btn('#374151', !!photoLoading), width: '100%' }}
+                      >
+                        {photoLoading === 'asis' ? 'Uploading…' : '↑ Upload As-Is'}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!!photoLoading}
+                        onClick={() => handlePhotoUpload(true)}
+                        style={{ ...btn(NSSA.dark, !!photoLoading), width: '100%' }}
+                      >
+                        {photoLoading === 'ai' ? 'Enhancing…' : '✦ Enhance with AI'}
+                      </button>
+                    </div>
+
+                    <p style={{ fontSize: '11px', color: GRAY.text, marginTop: '8px', lineHeight: 1.4 }}>
+                      <strong>Enhance with AI</strong> — upgrades to business attire, improves lighting and composition.
+                    </p>
+                  </div>
+                )}
+
+                {photoSuccess && (
+                  <div style={{ marginTop: '10px', padding: '8px 12px', background: GREEN.bg, border: `1px solid ${GREEN.border}`, borderRadius: '6px', fontSize: '13px', color: GREEN.text }}>
+                    ✓ {photoSuccess}
+                  </div>
+                )}
+                {photoError && (
+                  <div style={{ marginTop: '10px', padding: '8px 12px', background: RED.bg, border: `1px solid ${RED.border}`, borderRadius: '6px', fontSize: '13px', color: RED.text }}>
+                    {photoError}
+                  </div>
+                )}
+
+                <p style={{ fontSize: '11px', color: GRAY.text, marginTop: '12px', lineHeight: 1.5 }}>
+                  Accepted formats: JPG, PNG, WebP. Best results with a clear photo of your face.
+                </p>
+              </div>
             </div>
 
-            {/* Details */}
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '6px' }}>
-                <div>
-                  <p style={{ fontWeight: 700, fontSize: '17px', color: '#111', marginBottom: '2px' }}>
-                    {member.first_name} {member.last_name}
-                  </p>
-                  {(member.job_title || member.company) && (
-                    <p style={{ fontSize: '13px', color: GRAY.text, marginBottom: '2px' }}>
-                      {[member.job_title, member.company].filter(Boolean).join(' · ')}
-                    </p>
-                  )}
-                  {(member.city || member.state) && (
-                    <p style={{ fontSize: '12px', color: GRAY.text }}>
-                      {[member.city, member.state].filter(Boolean).join(', ')}
-                    </p>
-                  )}
-                </div>
-                <Link href="/profile/edit" style={{ fontSize: '12px', color: NSSA.medium, textDecoration: 'none', fontWeight: 500, whiteSpace: 'nowrap', marginLeft: '1rem' }}>
-                  Edit Profile →
-                </Link>
-              </div>
-
-              {/* Cert badges */}
-              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '10px' }}>
-                {member.nssa_certified && (
-                  <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', background: '#eff6ff', color: NSSA.medium, border: `1px solid ${NSSA.light}` }}>
-                    NSSA® Certified{member.nssa_number ? ` #${member.nssa_number}` : ''}
-                  </span>
-                )}
-                {member.irmaa_certified && (
-                  <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', background: '#fef2f2', color: IRMAA.dark, border: `1px solid ${IRMAA.light}` }}>
-                    IRMAACP™ Certified{member.irmaa_number ? ` #${member.irmaa_number}` : ''}
-                  </span>
-                )}
-              </div>
-
-              {/* Contact row */}
-              {(member.phone || member.website) && (
-                <div style={{ display: 'flex', gap: '16px', marginBottom: '10px', flexWrap: 'wrap' }}>
-                  {member.phone && (
-                    <span style={{ fontSize: '12px', color: GRAY.text }}>📞 {member.phone}</span>
-                  )}
-                  {member.website && (
-                    <a href={member.website} target="_blank" rel="noopener noreferrer" style={{ fontSize: '12px', color: NSSA.medium, textDecoration: 'none' }}>
-                      🌐 {member.website.replace(/^https?:\/\//, '')}
-                    </a>
-                  )}
-                </div>
-              )}
-
-              {/* Bio */}
-              {member.bio && (
-                <p style={{ fontSize: '13px', color: '#374151', lineHeight: 1.5, maxWidth: '680px', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-                  {member.bio}
-                </p>
-              )}
-
-              {/* Empty state */}
-              {!member.job_title && !member.bio && !member.phone && (
-                <p style={{ fontSize: '12px', color: GRAY.text, fontStyle: 'italic' }}>
-                  Your profile is incomplete —{' '}
-                  <Link href="/profile/edit" style={{ color: NSSA.medium, textDecoration: 'none' }}>add your details</Link>
-                  {' '}to appear in the advisor directory.
-                </p>
-              )}
-            </div>
           </div>
         </div>
 
