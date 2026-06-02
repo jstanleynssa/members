@@ -1,5 +1,4 @@
 import { createClient } from '@supabase/supabase-js'
-import sharp from 'sharp'
 
 const TARGET_WIDTH  = 676
 const TARGET_HEIGHT = 696
@@ -132,7 +131,8 @@ export default async function handler(req, res) {
 
     // ── Step 4: Resize to 676×696 at 144ppi ──────────────────────────────────
     console.log(`[photo] Resizing to ${TARGET_WIDTH}×${TARGET_HEIGHT} at ${TARGET_DPI}ppi...`)
-    imgBuffer = await sharp(imgBuffer)
+    const sharp = (await import('sharp')).default
+imgBuffer = await sharp(imgBuffer)
       .resize(TARGET_WIDTH, TARGET_HEIGHT, { fit: 'cover', position: 'top' })
       .withMetadata({ density: TARGET_DPI })
       .jpeg({ quality: 92 })
