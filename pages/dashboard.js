@@ -39,7 +39,7 @@ export async function getServerSideProps(context) {
 
   const { data: member } = await supabaseAdmin
     .from('members')
-    .select('email, first_name, last_name, nssa_certified, irmaa_certified, nssa_cert_date, irmaa_cert_date, nssa_number, irmaa_number, profile_photo, job_title, company, address, city, state, zip, phone, website, bio, financial_disclosure, is_active')
+    .select('email, first_name, last_name, nssa_certified, irmaa_certified, nssa_cert_date, irmaa_cert_date, nssa_number, irmaa_number, profile_photo, job_title, company, address, city, state, zip, phone, mobile_phone, website, linkedin_url, bio, financial_disclosure, is_active')
     .eq('email', session.user.email)
     .single()
 
@@ -118,19 +118,27 @@ function StatusPill({ status, hours }) {
 }
 
 // ── Inline profile form helpers (ported from /profile/edit) ───────────────
-function Field({ label, name, value, onChange, type = 'text', placeholder, hint, textarea, required }) {
+function Field({ label, name, value, onChange, type = 'text', placeholder, hint, textarea, required, minHeight, tooltip }) {
   const inputStyle = {
     width: '100%', padding: '9px 12px', fontSize: '14px',
     border: `1px solid ${GRAY.border}`, borderRadius: '6px',
     outline: 'none', boxSizing: 'border-box',
     fontFamily: 'system-ui, sans-serif', background: 'white',
     resize: textarea ? 'vertical' : undefined,
-    minHeight: textarea ? '100px' : undefined,
+    minHeight: textarea ? (minHeight || '100px') : undefined,
   }
   return (
     <div style={{ marginBottom: '1rem' }}>
-      <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, color: '#374151', marginBottom: '5px' }}>
-        {label}{required && <span style={{ color: '#dc2626', marginLeft: 2 }}>*</span>}
+      <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: 500, color: '#374151', marginBottom: '5px' }}>
+        <span>{label}{required && <span style={{ color: '#dc2626', marginLeft: 2 }}>*</span>}</span>
+        {tooltip && (
+          <span
+            title={tooltip}
+            style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '15px', height: '15px', borderRadius: '99px', background: GRAY.bg, color: GRAY.text, fontSize: '10px', fontWeight: 700, cursor: 'help', border: `1px solid ${GRAY.border}` }}
+          >
+            ?
+          </span>
+        )}
       </label>
       {textarea
         ? <textarea name={name} value={value || ''} onChange={onChange} placeholder={placeholder} style={inputStyle} />
@@ -170,7 +178,9 @@ export default function Dashboard({ member, subs, selectedYear, availableYears, 
     state:                member.state                || '',
     zip:                  member.zip                  || '',
     phone:                member.phone                || '',
+    mobile_phone:         member.mobile_phone         || '',
     website:              member.website              || '',
+    linkedin_url:         member.linkedin_url         || '',
     bio:                  stripHtml(member.bio)       || '',
     financial_disclosure: member.financial_disclosure || '',
   })
@@ -561,14 +571,23 @@ export default function Dashboard({ member, subs, selectedYear, availableYears, 
 
                 <Section title="Contact">
                   <div style={twoCol}>
-                    <Field label="Office Phone" name="phone"   value={form.phone}   onChange={handleChange} placeholder="(555) 555-5555" type="tel" />
-                    <Field label="Website"      name="website" value={form.website} onChange={handleChange} placeholder="https://yoursite.com" type="url" />
+                    <Field label="Office Phone" name="phone"        value={form.phone}        onChange={handleChange} placeholder="(555) 555-5555" type="tel" />
+                    <Field label="Mobile Phone" name="mobile_phone" value={form.mobile_phone} onChange={handleChange} placeholder="(555) 555-5555" type="tel" />
+                  </div>
+                  <div style={twoCol}>
+                    <Field label="Website"  name="website"      value={form.website}      onChange={handleChange} placeholder="https://yoursite.com" type="url" />
+                    <Field
+                      label="LinkedIn" name="linkedin_url" value={form.linkedin_url} onChange={handleChange}
+                      placeholder="https://linkedin.com/in/yourname" type="url"
+                      tooltip="On LinkedIn, open your profile, click 'Contact info' (under your headline), then copy the Profile URL — it looks like linkedin.com/in/yourname. On mobile, tap the share icon on your profile and choose 'Copy link to profile.'"
+                      hint="Paste the full URL to your LinkedIn profile."
+                    />
                   </div>
                 </Section>
 
                 <Section title="Professional Bio">
                   <Field
-                    label="Bio" name="bio" value={form.bio} onChange={handleChange} textarea
+                    label="Bio" name="bio" value={form.bio} onChange={handleChange} textarea minHeight="220px"
                     placeholder="Tell clients about your background, experience, and approach..."
                     hint="This bio will be displayed on your public directory listing."
                   />
