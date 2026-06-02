@@ -331,24 +331,30 @@ export default function Dashboard({ member, subs, selectedYear, availableYears, 
     <div style={{ minHeight: '100vh', background: '#f5f5f5', fontFamily: 'system-ui, sans-serif' }}>
 
       {/* Header */}
-      <div style={{ background: 'white', borderBottom: `1px solid ${GRAY.border}`, padding: '1rem 2rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <img src="/nssa-irmaa-logos.png" alt="NSSA IRMAA logos" style={{ height: '40px', width: 'auto' }} />
+      <div style={{ background: 'white', borderBottom: `1px solid ${GRAY.border}`, padding: '1.5rem 2rem' }}>
+        <div style={{ maxWidth: '1400px', margin: '0 auto', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
           <div>
-            <h1 style={{ fontSize: '16px', fontWeight: 700, color: '#111' }}>Member Dashboard</h1>
-            <p style={{ fontSize: '12px', color: GRAY.text }}>Welcome back, {member.first_name || 'Member'}</p>
+            <h1 style={{ fontSize: '1.5rem', fontWeight: 600, color: '#111', marginBottom: '4px' }}>Member Management</h1>
+            <p style={{ color: '#666', fontSize: '14px' }}>
+              {(member.first_name && member.last_name)
+                ? `${member.first_name} ${member.last_name}`
+                : (member.first_name || userEmail)}
+            </p>
           </div>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          {isAdmin && (
-            <Link href="/admin/members" style={{ fontSize: '12px', color: NSSA.medium, textDecoration: 'none', fontWeight: 500 }}>
-              Admin →
-            </Link>
-          )}
-          <span style={{ fontSize: '12px', color: GRAY.text }}>{userEmail}</span>
-          <Link href="/api/auth/signout" style={{ fontSize: '12px', color: GRAY.text, textDecoration: 'none', padding: '5px 10px', border: `1px solid ${GRAY.border}`, borderRadius: '5px' }}>
-            Sign out
-          </Link>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '10px' }}>
+            <img src="/nssa-irmaa-logos.png" alt="NSSA and IRMAACP logos" style={{ height: '50px', width: 'auto' }} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              {isAdmin && (
+                <Link href="/admin/members" style={{ fontSize: '12px', color: NSSA.medium, textDecoration: 'none', fontWeight: 500 }}>
+                  Admin →
+                </Link>
+              )}
+              <span style={{ fontSize: '12px', color: GRAY.text }}>{userEmail}</span>
+              <Link href="/api/auth/signout" style={{ fontSize: '12px', color: GRAY.text, textDecoration: 'none', padding: '5px 10px', border: `1px solid ${GRAY.border}`, borderRadius: '5px' }}>
+                Sign out
+              </Link>
+            </div>
+          </div>
         </div>
       </div>
 
