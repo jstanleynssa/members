@@ -48,6 +48,11 @@ export async function getServerSideProps(context) {
     .eq('email', session.user.email)
     .single()
 
+  if (!member || (!member.nssa_certified && !member.irmaa_certified)) {
+  await supabaseServer.auth.signOut()
+  return { redirect: { destination: '/login?error=not_authorized', permanent: false } }
+}
+
   const { data: allSubmissions } = await supabaseServer
     .from('ce_submissions')
     .select('*')
