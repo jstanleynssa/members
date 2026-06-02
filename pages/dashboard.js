@@ -7,8 +7,14 @@ import Link from 'next/link'
 const NSSA  = { dark: '#13405E', medium: '#1C80BC', light: '#8ECAEE' }
 const IRMAA = { dark: '#AF2A35', medium: '#DE5B63', light: '#ED8E8E' }
 const GRAY  = { text: '#6b7280', bg: '#f3f4f6', border: '#e5e7eb' }
-const GREEN = { bg: '#f0fdf4', text: '#15803d', border: '#bbf7d0' }
-const RED   = { bg: '#fef2f2', text: '#dc2626', border: '#fecaca' }
+
+// Soft tint backgrounds derived from the palette (for pill/badge fills).
+const NSSA_BG  = '#eef6fc'  // light tint of NSSA blue
+const IRMAA_BG = '#fceeef'  // light tint of IRMAA red
+
+// Success states use the NSSA medium family; destructive/error states use IRMAA.
+const SUCCESS = { bg: NSSA_BG,  text: NSSA.medium,  border: NSSA.light }
+const ALERT   = { bg: IRMAA_BG, text: IRMAA.medium, border: IRMAA.light }
 
 // Strip HTML tags so legacy bios stored with <p>...</p> don't render as
 // literal text in the plain-text textarea / display. Collapses block tags
@@ -101,13 +107,13 @@ export async function getServerSideProps(context) {
   }
 }
 
-function StatusPill({ status, hours }) {
+function StatusPill({ status, accent, accentBg, accentLight }) {
   const map = {
-    met:       { bg: '#f0fdf4', color: '#15803d', border: '#bbf7d0', label: '✓ Requirement Met' },
-    exempt:    { bg: '#eff6ff', color: NSSA.medium, border: NSSA.light, label: '✓ Exempt — new cert' },
-    progress:  { bg: '#fef9c3', color: '#854d0e', border: '#fde68a', label: 'In progress' },
-    unstarted: { bg: '#fef2f2', color: '#dc2626', border: '#fecaca', label: 'Not started' },
-    na:        { bg: GRAY.bg,   color: GRAY.text,  border: GRAY.border, label: 'Not enrolled' },
+    met:       { bg: accentBg, color: accent,    border: accentLight, label: '✓ Requirement Met' },
+    exempt:    { bg: accentBg, color: accent,    border: accentLight, label: '✓ Exempt — new cert' },
+    progress:  { bg: accentBg, color: accent,    border: accentLight, label: 'In progress' },
+    unstarted: { bg: GRAY.bg,  color: GRAY.text, border: GRAY.border, label: 'Not started' },
+    na:        { bg: GRAY.bg,  color: GRAY.text, border: GRAY.border, label: 'Not enrolled' },
   }
   const s = map[status] || map.na
   return (
@@ -130,7 +136,7 @@ function Field({ label, name, value, onChange, type = 'text', placeholder, hint,
   return (
     <div style={{ marginBottom: '1rem' }}>
       <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: 500, color: '#374151', marginBottom: '5px' }}>
-        <span>{label}{required && <span style={{ color: '#dc2626', marginLeft: 2 }}>*</span>}</span>
+        <span>{label}{required && <span style={{ color: IRMAA.medium, marginLeft: 2 }}>*</span>}</span>
         {tooltip && (
           <span
             title={tooltip}
@@ -309,9 +315,9 @@ export default function Dashboard({ member, subs, selectedYear, availableYears, 
   }
 
   function statusColor(s) {
-    if (s === 'approved') return { bg: '#f0fdf4', color: '#15803d', border: '#bbf7d0' }
-    if (s === 'rejected') return { bg: '#fef2f2', color: '#dc2626', border: '#fecaca' }
-    return { bg: '#fef9c3', color: '#854d0e', border: '#fde68a' }
+    if (s === 'approved') return { bg: NSSA_BG, color: NSSA.medium, border: NSSA.light }
+    if (s === 'rejected') return { bg: IRMAA_BG, color: IRMAA.medium, border: IRMAA.light }
+    return { bg: GRAY.bg, color: GRAY.text, border: GRAY.border }
   }
 
   const td = { padding: '10px 14px', fontSize: '13px', verticalAlign: 'middle', borderTop: `1px solid ${GRAY.bg}` }
@@ -330,9 +336,10 @@ export default function Dashboard({ member, subs, selectedYear, availableYears, 
   return (
     <div style={{ minHeight: '100vh', background: '#f5f5f5', fontFamily: 'system-ui, sans-serif' }}>
 
-      {/* Header */}
-      <div style={{ background: 'white', borderBottom: `1px solid ${GRAY.border}`, padding: '1.5rem 2rem' }}>
-        <div style={{ maxWidth: '1400px', margin: '0 auto', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+      <div style={{ maxWidth: '1000px', margin: '0 auto', padding: '2rem' }}>
+
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
           <div>
             <h1 style={{ fontSize: '1.5rem', fontWeight: 600, color: '#111', marginBottom: '4px' }}>Member Management</h1>
             <p style={{ color: '#666', fontSize: '14px' }}>
@@ -356,9 +363,6 @@ export default function Dashboard({ member, subs, selectedYear, availableYears, 
             </div>
           </div>
         </div>
-      </div>
-
-      <div style={{ maxWidth: '900px', margin: '0 auto', padding: '2rem' }}>
 
         {/* CE Requirements Header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
@@ -367,7 +371,7 @@ export default function Dashboard({ member, subs, selectedYear, availableYears, 
           </h2>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             {daysLeft > 0 && daysLeft < 365 && (
-              <span style={{ fontSize: '12px', color: daysLeft < 60 ? '#dc2626' : GRAY.text, background: daysLeft < 60 ? '#fef2f2' : GRAY.bg, padding: '3px 10px', borderRadius: '99px', border: `1px solid ${daysLeft < 60 ? '#fecaca' : GRAY.border}` }}>
+              <span style={{ fontSize: '12px', color: daysLeft < 60 ? IRMAA.medium : GRAY.text, background: daysLeft < 60 ? IRMAA_BG : GRAY.bg, padding: '3px 10px', borderRadius: '99px', border: `1px solid ${daysLeft < 60 ? IRMAA.light : GRAY.border}` }}>
                 {daysLeft} days remaining in {selectedYear}
               </span>
             )}
@@ -379,19 +383,19 @@ export default function Dashboard({ member, subs, selectedYear, availableYears, 
 
           {/* NSSA CE Card */}
           {member.nssa_certified && (
-            <div style={{ background: 'white', border: `2px solid ${nssaStatus === 'met' || nssaStatus === 'exempt' ? NSSA.medium : nssaStatus === 'unstarted' ? '#fecaca' : '#fde68a'}`, borderRadius: '10px', padding: '1.5rem' }}>
+            <div style={{ background: 'white', border: `2px solid ${nssaStatus === 'unstarted' ? GRAY.border : NSSA.medium}`, borderRadius: '10px', padding: '1.5rem' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
                 <span style={{ fontSize: '13px', color: GRAY.text }}>NSSA® CE Requirement</span>
-                <StatusPill status={nssaStatus} hours={nssaHours} />
+                <StatusPill status={nssaStatus} accent={NSSA.medium} accentBg={NSSA_BG} accentLight={NSSA.light} />
               </div>
-              <p style={{ fontSize: '32px', fontWeight: 700, color: nssaStatus === 'met' || nssaStatus === 'exempt' ? NSSA.dark : nssaStatus === 'unstarted' ? '#dc2626' : '#854d0e', marginBottom: '6px' }}>
+              <p style={{ fontSize: '32px', fontWeight: 700, color: nssaStatus === 'unstarted' ? GRAY.text : NSSA.dark, marginBottom: '6px' }}>
                 {nssaHours} <span style={{ fontSize: '14px', fontWeight: 400, color: GRAY.text }}>/ 4 hrs</span>
               </p>
               <p style={{ fontSize: '12px', color: GRAY.text, marginBottom: '12px' }}>
                 {nssaHours} of 4 hours completed &nbsp; {Math.round((nssaHours / 4) * 100)}%
               </p>
               <div style={{ background: GRAY.bg, borderRadius: '4px', height: '6px', overflow: 'hidden', marginBottom: '1rem' }}>
-                <div style={{ height: '100%', width: `${Math.min(100, (nssaHours / 4) * 100)}%`, background: nssaStatus === 'met' || nssaStatus === 'exempt' ? NSSA.medium : '#f59e0b', borderRadius: '4px' }} />
+                <div style={{ height: '100%', width: `${Math.min(100, (nssaHours / 4) * 100)}%`, background: NSSA.medium, borderRadius: '4px' }} />
               </div>
               {nssaStatus !== 'met' && nssaStatus !== 'exempt' && (
                 <Link href="/ce/submit?designation=NSSA" style={{ display: 'block', textAlign: 'center', padding: '9px', background: NSSA.dark, color: 'white', borderRadius: '6px', fontSize: '13px', fontWeight: 500, textDecoration: 'none' }}>
@@ -403,19 +407,19 @@ export default function Dashboard({ member, subs, selectedYear, availableYears, 
 
           {/* IRMAA CE Card */}
           {member.irmaa_certified && (
-            <div style={{ background: 'white', border: `2px solid ${irmaaStatus === 'met' || irmaaStatus === 'exempt' ? IRMAA.medium : irmaaStatus === 'unstarted' ? '#fecaca' : '#fde68a'}`, borderRadius: '10px', padding: '1.5rem' }}>
+            <div style={{ background: 'white', border: `2px solid ${irmaaStatus === 'unstarted' ? GRAY.border : IRMAA.medium}`, borderRadius: '10px', padding: '1.5rem' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
                 <span style={{ fontSize: '13px', color: GRAY.text }}>IRMAACP™ CE Requirement</span>
-                <StatusPill status={irmaaStatus} hours={irmaaHours} />
+                <StatusPill status={irmaaStatus} accent={IRMAA.medium} accentBg={IRMAA_BG} accentLight={IRMAA.light} />
               </div>
-              <p style={{ fontSize: '32px', fontWeight: 700, color: irmaaStatus === 'met' || irmaaStatus === 'exempt' ? IRMAA.dark : irmaaStatus === 'unstarted' ? '#dc2626' : '#854d0e', marginBottom: '6px' }}>
+              <p style={{ fontSize: '32px', fontWeight: 700, color: irmaaStatus === 'unstarted' ? GRAY.text : IRMAA.dark, marginBottom: '6px' }}>
                 {irmaaHours} <span style={{ fontSize: '14px', fontWeight: 400, color: GRAY.text }}>/ 4 hrs</span>
               </p>
               <p style={{ fontSize: '12px', color: GRAY.text, marginBottom: '12px' }}>
                 {irmaaHours} of 4 hours completed &nbsp; {Math.round((irmaaHours / 4) * 100)}%
               </p>
               <div style={{ background: GRAY.bg, borderRadius: '4px', height: '6px', overflow: 'hidden', marginBottom: '1rem' }}>
-                <div style={{ height: '100%', width: `${Math.min(100, (irmaaHours / 4) * 100)}%`, background: irmaaStatus === 'met' || irmaaStatus === 'exempt' ? IRMAA.medium : '#f59e0b', borderRadius: '4px' }} />
+                <div style={{ height: '100%', width: `${Math.min(100, (irmaaHours / 4) * 100)}%`, background: IRMAA.medium, borderRadius: '4px' }} />
               </div>
               {irmaaStatus !== 'met' && irmaaStatus !== 'exempt' && (
                 <Link href="/ce/submit?designation=IRMAA" style={{ display: 'block', textAlign: 'center', padding: '9px', background: IRMAA.dark, color: 'white', borderRadius: '6px', fontSize: '13px', fontWeight: 500, textDecoration: 'none' }}>
@@ -504,7 +508,7 @@ export default function Dashboard({ member, subs, selectedYear, availableYears, 
                         <td style={td}>{s.ce_type || '—'}</td>
                         <td style={{ ...td, fontWeight: 600 }}>{s.hours_earned}</td>
                         <td style={td}>
-                          <span style={{ fontSize: '11px', padding: '2px 6px', borderRadius: '4px', background: s.designation === 'NSSA' ? '#eff6ff' : s.designation === 'IRMAA' ? '#fef2f2' : '#f5f3ff', color: s.designation === 'NSSA' ? NSSA.medium : s.designation === 'IRMAA' ? IRMAA.dark : '#7c3aed' }}>
+                          <span style={{ fontSize: '11px', padding: '2px 6px', borderRadius: '4px', background: s.designation === 'IRMAA' ? IRMAA_BG : NSSA_BG, color: s.designation === 'IRMAA' ? IRMAA.medium : NSSA.medium }}>
                             {s.designation}
                           </span>
                         </td>
@@ -537,12 +541,12 @@ export default function Dashboard({ member, subs, selectedYear, availableYears, 
             {/* Cert badges (read-only) */}
             <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
               {member.nssa_certified && (
-                <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', background: '#eff6ff', color: NSSA.medium, border: `1px solid ${NSSA.light}` }}>
+                <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', background: NSSA_BG, color: NSSA.medium, border: `1px solid ${NSSA.light}` }}>
                   NSSA® Certified{member.nssa_number ? ` #${member.nssa_number}` : ''}
                 </span>
               )}
               {member.irmaa_certified && (
-                <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', background: '#fef2f2', color: IRMAA.dark, border: `1px solid ${IRMAA.light}` }}>
+                <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', background: IRMAA_BG, color: IRMAA.medium, border: `1px solid ${IRMAA.light}` }}>
                   IRMAACP™ Certified{member.irmaa_number ? ` #${member.irmaa_number}` : ''}
                 </span>
               )}
@@ -617,12 +621,12 @@ export default function Dashboard({ member, subs, selectedYear, availableYears, 
                     <span style={{ fontSize: '12px', color: GRAY.text }}>Unsaved changes</span>
                   )}
                   {saved && (
-                    <span style={{ fontSize: '13px', color: GREEN.text, background: GREEN.bg, border: `1px solid ${GREEN.border}`, padding: '6px 12px', borderRadius: '6px' }}>
+                    <span style={{ fontSize: '13px', color: SUCCESS.text, background: SUCCESS.bg, border: `1px solid ${SUCCESS.border}`, padding: '6px 12px', borderRadius: '6px' }}>
                       ✓ Profile saved
                     </span>
                   )}
                   {saveError && (
-                    <span style={{ fontSize: '13px', color: RED.text }}>{saveError}</span>
+                    <span style={{ fontSize: '13px', color: ALERT.text }}>{saveError}</span>
                   )}
                 </div>
               </div>
@@ -704,12 +708,12 @@ export default function Dashboard({ member, subs, selectedYear, availableYears, 
                 )}
 
                 {photoSuccess && (
-                  <div style={{ marginTop: '10px', padding: '8px 12px', background: GREEN.bg, border: `1px solid ${GREEN.border}`, borderRadius: '6px', fontSize: '13px', color: GREEN.text }}>
+                  <div style={{ marginTop: '10px', padding: '8px 12px', background: SUCCESS.bg, border: `1px solid ${SUCCESS.border}`, borderRadius: '6px', fontSize: '13px', color: SUCCESS.text }}>
                     ✓ {photoSuccess}
                   </div>
                 )}
                 {photoError && (
-                  <div style={{ marginTop: '10px', padding: '8px 12px', background: RED.bg, border: `1px solid ${RED.border}`, borderRadius: '6px', fontSize: '13px', color: RED.text }}>
+                  <div style={{ marginTop: '10px', padding: '8px 12px', background: ALERT.bg, border: `1px solid ${ALERT.border}`, borderRadius: '6px', fontSize: '13px', color: ALERT.text }}>
                     {photoError}
                   </div>
                 )}
