@@ -1,10 +1,21 @@
 import { createClient } from '@supabase/supabase-js'
 import sharp from 'sharp'
 
-// Target dimensions for profile photos
-const TARGET_WIDTH = 676
+const TARGET_WIDTH  = 676
 const TARGET_HEIGHT = 696
-const TARGET_DPI = 144
+const TARGET_DPI    = 144
+
+const HEADSHOT_PROMPT = `Convert the uploaded photo into a professional executive headshot suitable for LinkedIn profiles, corporate websites, speaker biographies, advisor directories, and professional marketing materials.
+Preserve the person's exact identity, facial features, age, ethnicity, hairstyle, expression, and distinguishing characteristics. Do not materially alter the person's appearance or create a different face.
+Recompose the image into a square (1:1) format. Center the subject naturally within the frame and ensure there is comfortable negative space around the head and shoulders. The composition should resemble a professionally photographed corporate portrait rather than a tightly cropped selfie.
+If the original image is tightly cropped, intelligently zoom out and realistically generate the missing areas of the image, including shoulders, clothing, background, and surrounding space. Maintain accurate proportions and a natural appearance.
+Replace casual clothing with polished professional business attire appropriate for an executive, financial advisor, attorney, consultant, or business professional. Clothing should appear realistic, tailored, and professional.
+Create professional studio-quality lighting with natural skin tones, sharp focus on the eyes, realistic skin texture, balanced contrast, and subtle retouching. Remove distractions, harsh shadows, glare, image noise, and low-quality artifacts while maintaining a natural, authentic appearance.
+Randomly select and generate one professional background style that complements the subject: modern corporate office, executive office environment, soft professional studio backdrop, neutral gray or blue gradient background, premium bokeh background, contemporary city skyline, upscale business district, or bright professional workspace. Ensure the background remains softly blurred and does not distract from the subject.
+Final result should appear as a professionally commissioned corporate headshot captured by an experienced portrait photographer using a high-end camera and professional lighting. High resolution, photorealistic, authentic, polished, trustworthy, and approachable.
+Frame subject from mid-chest to top of head, occupying approximately 60-70% of the image height. Maintain 15-20% negative space above the head and balanced side margins.`
+
+const HEADSHOT_NEGATIVE = `face swap, altered identity, different person, beauty filter, glamour photography, fashion model pose, cartoon, illustration, painting, anime, unrealistic skin, plastic skin, excessive retouching, distorted facial features, asymmetrical eyes, exaggerated smile, extreme sharpening, low resolution, pixelation, artifacts, text, watermark, logo, cropped forehead, cropped chin, tight crop, selfie framing, dramatic cinematic lighting, fantasy background`
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end()
@@ -19,147 +30,79 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Missing email or photoUrl' })
   }
 
-  const imagineKey = process.env.IMAGINE_ART_API_KEY
+  const falKey = process.env.FAL_API_KEY
 
   try {
-    // ── Step 1: Download from signed S3 URL ──────────────────────────────────
-    console.log(`[photo] Downloading for ${email}`)
-    const s3Res = await fetch(photoUrl)
-    if (!s3Res.ok) return res.status(400).json({ error: `S3 fetch failed: ${s3Res.status}` })
-    let imgBuffer = Buffer.from(await s3Res.arrayBuffer())
-    let mimeType = s3Res.headers.get('content-type') || 'image/jpeg'
+    let imageUrl = photoUrl
 
-    // ── Step 2: Remove background ─────────────────────────────────────────────
-    if (imagineKey) {
+    // ── Step 1: Transform with FLUX.1 Kontext via fal.ai ─────────────────────
+    if (falKey) {
       try {
-        console.log(`[photo] Removing background...`)
-        const form = new FormData()
-        form.append('image', new Blob([imgBuffer], { type: mimeType }), 'photo.jpg')
-        const bgRes = await fetch('https://api.vyro.ai/v2/image/background/remover', {
+        console.log(`[photo] Submitting to FLUX.1 Kontext for ${email}...`)
+
+        const falRes = await fetch('https://fal.run/fal-ai/flux-kontext/dev', {
           method: 'POST',
-          headers: { 'Authorization': `Bearer ${imagineKey}` },
-          body: form
+          headers: {
+            'Authorization': `Key ${falKey}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            image_url: photoUrl,
+            prompt: HEADSHOT_PROMPT,
+            negative_prompt: HEADSHOT_NEGATIVE,
+            aspect_ratio: '1:1',
+            guidance_scale: 3.5,
+            num_inference_steps: 28,
+            output_format: 'jpeg'
+          })
         })
-        if (bgRes.ok) {
-          imgBuffer = Buffer.from(await bgRes.arrayBuffer())
-          mimeType = 'image/png' // background remover returns PNG
-          console.log(`[photo] Background removed ✓`)
-        } else {
-          console.warn(`[photo] BG removal failed (${bgRes.status}) — continuing`)
-        }
-      } catch (e) {
-        console.warn(`[photo] BG removal error: ${e.message} — continuing`)
-      }
 
-      // ── Step 3: Upgrade clothing to business attire via Generative Fill ───
-      // Generate a body mask: white in the lower ~60% (body/clothing area),
-      // black in the upper ~40% (face/head area — preserved untouched)
-      try {
-        console.log(`[photo] Generating clothing upgrade mask...`)
-        const meta = await sharp(imgBuffer).metadata()
-        const imgW = meta.width || TARGET_WIDTH
-        const imgH = meta.height || TARGET_HEIGHT
-        const faceZone = Math.floor(imgH * 0.42) // protect top 42% (face/hair)
-
-        // Create mask: black (protected) on top, white (fill) on bottom
-        const maskBuffer = await sharp({
-          create: {
-            width: imgW,
-            height: imgH,
-            channels: 3,
-            background: { r: 0, g: 0, b: 0 }
+        if (falRes.ok) {
+          const falData = await falRes.json()
+          const outputUrl = falData?.images?.[0]?.url
+          if (outputUrl) {
+            imageUrl = outputUrl
+            console.log(`[photo] FLUX.1 Kontext complete ✓`)
+          } else {
+            console.warn(`[photo] Kontext returned no image URL — using original`)
           }
-        })
-          .composite([{
-            input: {
-              create: {
-                width: imgW,
-                height: imgH - faceZone,
-                channels: 3,
-                background: { r: 255, g: 255, b: 255 }
-              }
-            },
-            top: faceZone,
-            left: 0
-          }])
-          .jpeg()
-          .toBuffer()
-
-        const clothingForm = new FormData()
-        clothingForm.append('image', new Blob([imgBuffer], { type: mimeType }), 'photo.jpg')
-        clothingForm.append('mask', new Blob([maskBuffer], { type: 'image/jpeg' }), 'mask.jpg')
-        clothingForm.append('prompt',
-          'professional business attire, formal suit jacket, collared shirt, ' +
-          'corporate professional headshot style, high quality, photorealistic'
-        )
-
-        const fillRes = await fetch('https://api.vyro.ai/v2/image/edits/generative-fill', {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${imagineKey}` },
-          body: clothingForm
-        })
-
-        if (fillRes.ok) {
-          imgBuffer = Buffer.from(await fillRes.arrayBuffer())
-          mimeType = fillRes.headers.get('content-type') || 'image/jpeg'
-          console.log(`[photo] Clothing upgraded ✓`)
         } else {
-          const errText = await fillRes.text()
-          console.warn(`[photo] Clothing upgrade failed (${fillRes.status}): ${errText} — continuing`)
+          const errText = await falRes.text()
+          console.warn(`[photo] Kontext failed (${falRes.status}): ${errText} — using original`)
         }
       } catch (e) {
-        console.warn(`[photo] Clothing upgrade error: ${e.message} — continuing`)
+        console.warn(`[photo] Kontext error: ${e.message} — using original`)
       }
-
-      // ── Step 4: Enhance / upscale ─────────────────────────────────────────
-      try {
-        console.log(`[photo] Enhancing...`)
-        const enhForm = new FormData()
-        enhForm.append('image', new Blob([imgBuffer], { type: mimeType }), 'photo.jpg')
-        const enhRes = await fetch('https://api.vyro.ai/v2/image/enhance', {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${imagineKey}` },
-          body: enhForm
-        })
-        if (enhRes.ok) {
-          imgBuffer = Buffer.from(await enhRes.arrayBuffer())
-          mimeType = enhRes.headers.get('content-type') || 'image/jpeg'
-          console.log(`[photo] Enhanced ✓`)
-        } else {
-          console.warn(`[photo] Enhancement failed — continuing`)
-        }
-      } catch (e) {
-        console.warn(`[photo] Enhancement error: ${e.message} — continuing`)
-      }
+    } else {
+      console.warn('[photo] FAL_API_KEY not set — skipping AI transformation')
     }
 
-    // ── Step 5: Face-centered crop + resize to 676×696 at 144ppi ─────────────
-    // After BG removal the subject is centered. We use Sharp's 'cover' with
-    // 'top' gravity which naturally keeps the head/face in frame for portraits.
-    console.log(`[photo] Resizing to ${TARGET_WIDTH}x${TARGET_HEIGHT} at ${TARGET_DPI}ppi...`)
+    // ── Step 2: Download final image ──────────────────────────────────────────
+    console.log(`[photo] Downloading processed image...`)
+    const imgRes = await fetch(imageUrl)
+    if (!imgRes.ok) return res.status(400).json({ error: `Image download failed: ${imgRes.status}` })
+    let imgBuffer = Buffer.from(await imgRes.arrayBuffer())
+    console.log(`[photo] Downloaded ✓`)
+
+    // ── Step 3: Resize to 676×696 at 144ppi, face-top crop ───────────────────
+    console.log(`[photo] Resizing to ${TARGET_WIDTH}×${TARGET_HEIGHT} at ${TARGET_DPI}ppi...`)
     imgBuffer = await sharp(imgBuffer)
       .resize(TARGET_WIDTH, TARGET_HEIGHT, {
         fit: 'cover',
-        position: 'top'  // anchors to top so face stays in frame
+        position: 'top'
       })
-      .withMetadata({ density: TARGET_DPI }) // sets 144ppi
+      .withMetadata({ density: TARGET_DPI })
       .jpeg({ quality: 92 })
       .toBuffer()
-    mimeType = 'image/jpeg'
     console.log(`[photo] Resized ✓`)
 
-    // ── Step 6: Upload to Supabase Storage ────────────────────────────────────
-    const safeEmail = email.toLowerCase().replace(/[^a-z0-9]/g, '-')
-    const filename = `${safeEmail}-${Date.now()}.jpg`
-    // Simplfiy storage path
-    const storagePath = filename
-
-    
-
+    // ── Step 4: Upload to Supabase Storage ────────────────────────────────────
+    const safeEmail  = email.toLowerCase().replace(/[^a-z0-9]/g, '-')
+    const filename   = `${safeEmail}-${Date.now()}.jpg`
 
     const { error: uploadError } = await supabase.storage
       .from('profile-photos')
-      .upload(storagePath, imgBuffer, { contentType: 'image/jpeg', upsert: true })
+      .upload(filename, imgBuffer, { contentType: 'image/jpeg', upsert: true })
 
     if (uploadError) {
       return res.status(500).json({ error: `Upload failed: ${uploadError.message}` })
@@ -167,11 +110,11 @@ export default async function handler(req, res) {
 
     const { data: urlData } = supabase.storage
       .from('profile-photos')
-      .getPublicUrl(storagePath)
+      .getPublicUrl(filename)
 
     const permanentUrl = urlData.publicUrl
 
-    // ── Step 7: Update member record ─────────────────────────────────────────
+    // ── Step 5: Update member record ──────────────────────────────────────────
     const { error: updateError } = await supabase
       .from('members')
       .update({ profile_photo: permanentUrl })
