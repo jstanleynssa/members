@@ -40,7 +40,7 @@ export default async function handler(req, res) {
       try {
         console.log(`[photo] Submitting to FLUX.1 Kontext for ${email}...`)
 
-        const falRes = await fetch('https://fal.run/fal-ai/flux-kontext/dev', {
+        const falRes = await fetch('https://fal.run/fal-ai/flux-pro/kontext', {
           method: 'POST',
           headers: {
             'Authorization': `Key ${falKey}`,
