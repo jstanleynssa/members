@@ -19,7 +19,7 @@ export default function Login() {
 const { error } = await supabase.auth.signInWithOtp({
   email,
   options: {
-    shouldCreateUser: false,
+    shouldCreateUser: true,
     emailRedirectTo: 'https://members.nssapros.com/auth/callback'
   }
 })
@@ -86,7 +86,15 @@ const { error } = await supabase.auth.signInWithOtp({
                 style={{ ...inputStyle, fontSize: '24px', letterSpacing: '0.5em', textAlign: 'center' }}
               />
             </div>
-            {error && <p style={{ color: '#dc2626', fontSize: '13px', marginBottom: '1rem' }}>{error}</p>}
+        {error && (
+  <p style={{ color: '#dc2626', fontSize: '13px', marginBottom: '1rem' }}>
+    {error === 'not_authorized'
+      ? 'Your account is not yet active. Please contact NSSA if you believe this is an error.'
+      : error === 'link_failed'
+      ? 'Sign-in link could not be generated. Please enter your email below to log in.'
+      : error}
+  </p>
+)}
             <button type="submit" disabled={loading || token.length !== 6} style={btnStyle(loading || token.length !== 6)}>
               {loading ? 'Verifying…' : 'Sign in'}
             </button>
