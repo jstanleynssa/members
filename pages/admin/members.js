@@ -381,7 +381,7 @@ export default function AdminMembers({ rows, selectedYear, availableYears, curre
                   {r.irmaaCertified ? <StatusPill status={r.irmaaStatus} hours={r.irmaaHours} /> : <span style={{ color: GRAY.text }}>—</span>}
                 </td>
                 <td style={{ ...td, color: GRAY.text, fontSize: '12px' }}>
-                  {r.lastDate ? new Date(r.lastDate).toLocaleDateString() : '—'}
+                  {r.lastDate ? new Date(r.lastDate + 'T12:00:00').toLocaleDateString() : '—'}
                 </td>
                 <td style={{ ...td, textAlign: 'right' }}>
                   {r.hasProfile ? (
