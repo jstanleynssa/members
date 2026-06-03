@@ -322,7 +322,7 @@ export default function MemberView({ member: initialMember, subs, viewEmail, sel
                   const sc = statusColor(s.status)
                   return (
                     <tr key={s.id} style={{ background: i % 2 === 0 ? 'white' : '#fafafa' }}>
-                      <td style={td}>{s.completion_date ? new Date(s.completion_date).toLocaleDateString() : '—'}</td>
+                      <td style={td}>{s.completion_date ? new Date(s.completion_date + 'T12:00:00').toLocaleDateString() : '—'}</td>
                       <td style={{ ...td, fontWeight: 500, maxWidth: '240px' }}>
                         {s.course_title || '—'}
                         {s.notes && <p style={{ fontSize: '11px', color: GRAY.text, margin: '2px 0 0' }}>{s.notes}</p>}
@@ -526,8 +526,8 @@ export default function MemberView({ member: initialMember, subs, viewEmail, sel
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
             {[
               ['Email', viewEmail],
-              ['NSSA Cert Date',  member.nssa_cert_date  ? new Date(member.nssa_cert_date).toLocaleDateString()  : '—'],
-              ['IRMAA Cert Date', member.irmaa_cert_date ? new Date(member.irmaa_cert_date).toLocaleDateString() : '—'],
+              ['NSSA Cert Date',  member.nssa_cert_date  ? new Date(member.nssa_cert_date + 'T12:00:00').toLocaleDateString()  : '—'],
+              ['IRMAA Cert Date', member.irmaa_cert_date ? new Date(member.irmaa_cert_date + 'T12:00:00').toLocaleDateString() : '—'],
               ['NSSA #',  member.nssa_number  || '—'],
               ['IRMAA #', member.irmaa_number || '—'],
               ['Org',     member.org_id       || '—'],
