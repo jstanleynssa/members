@@ -503,7 +503,7 @@ export default function Dashboard({ member, subs, selectedYear, availableYears, 
                     const sc = statusColor(s.status)
                     return (
                       <tr key={s.id}>
-                        <td style={td}>{s.completion_date ? new Date(s.completion_date).toLocaleDateString() : '—'}</td>
+                        <td style={td}>{s.completion_date ? new Date(s.completion_date + 'T12:00:00').toLocaleDateString() : '—'}</td>
                         <td style={{ ...td, fontWeight: 500, maxWidth: '220px' }}>{s.course_title || '—'}</td>
                         <td style={td}>{s.ce_type || '—'}</td>
                         <td style={{ ...td, fontWeight: 600 }}>{s.hours_earned}</td>
