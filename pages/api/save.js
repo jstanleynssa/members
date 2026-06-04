@@ -39,6 +39,11 @@ export default async function handler(req, res) {
   if (Object.prototype.hasOwnProperty.call(req.body, 'directory_opt_out')) {
     updates.directory_opt_out = req.body.directory_opt_out === true
   }
+  // Only set when explicitly sent (the wizard's Finish step), so ordinary
+  // edits never flip it. Once true it stays true.
+  if (Object.prototype.hasOwnProperty.call(req.body, 'profile_completed')) {
+    updates.profile_completed = req.body.profile_completed === true
+  }
 
   const { error } = await supabaseAdmin
     .from('members')
