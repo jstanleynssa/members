@@ -15,14 +15,13 @@ export async function middleware(req) {
   const isZoomWebhook = pathname.startsWith('/api/zoom-webhook')
   const isCeStatus = pathname.startsWith('/api/ce-status')
   const isSavePhoto = pathname.startsWith('/api/save-profile-photo')
+  const isInvite = pathname.startsWith('/api/invite')
 
-if (isCallback || isPublic || isKajabiSSO || isZoomWebhook || isCeStatus || isSavePhoto) return res
+  if (isCallback || isPublic || isKajabiSSO || isZoomWebhook || isCeStatus || isSavePhoto || isInvite) {
+    return res
+  }
 
-if (isCallback || isPublic || isKajabiSSO || isZoomWebhook || isCeStatus) return res
-
-if (isCallback || isPublic || isKajabiSSO || isZoomWebhook) return res
-
-if (!session) {
+  if (!session) {
   return NextResponse.redirect(new URL('/login', req.url))
   }
 
