@@ -75,6 +75,38 @@ function htmlBioToText(bio) {
   return paras.join('\n\n')
 }
 
+// Downscale + compress an image in the browser before upload. Caps the long
+// edge at MAX_EDGE and re-encodes as JPEG so the base64 POST body stays well
+// under the API route limit regardless of original size. Returns base64 (no
+// data: prefix). Module-scoped so both SimpleEdit and BuildWizard share one
+// definition. Re-reads the file each call so "regenerate" can re-run on it.
+const MAX_EDGE = 1200
+function fileToResizedBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = e => {
+      const img = new Image()
+      img.onload = () => {
+        let { width, height } = img
+        if (width > MAX_EDGE || height > MAX_EDGE) {
+          if (width >= height) { height = Math.round(height * (MAX_EDGE / width)); width = MAX_EDGE }
+          else { width = Math.round(width * (MAX_EDGE / height)); height = MAX_EDGE }
+        }
+        const canvas = document.createElement('canvas')
+        canvas.width = width; canvas.height = height
+        const ctx = canvas.getContext('2d')
+        ctx.drawImage(img, 0, 0, width, height)
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.85)
+        resolve(dataUrl.split(',')[1])
+      }
+      img.onerror = reject
+      img.src = e.target.result
+    }
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
+}
+
 export async function getServerSideProps(context) {
   const supabaseServer = createServerSupabaseClient(context)
   const { data: { session } } = await supabaseServer.auth.getSession()
@@ -219,39 +251,6 @@ function SimpleEdit({ member, userEmail }) {
     reader.onload = ev => setPhotoPreview(ev.target.result)
     reader.readAsDataURL(file)
     // aiGenCount is intentionally NOT reset — the cap is per session.
-  }
-
-  // Downscale + compress the selected image in the browser before upload.
-  // Caps the long edge at MAX_EDGE and re-encodes as JPEG, so the base64 POST
-  // body stays well under the API route limit regardless of original size.
-  // Returns base64 (no data: prefix). Re-reads selectedFile each call so
-  // "Try Again" can re-run on the same original.
-  const MAX_EDGE = 1200
-  function fileToResizedBase64(file) {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader()
-      reader.onload = e => {
-        const img = new Image()
-        img.onload = () => {
-          let { width, height } = img
-          if (width > MAX_EDGE || height > MAX_EDGE) {
-            if (width >= height) { height = Math.round(height * (MAX_EDGE / width)); width = MAX_EDGE }
-            else { width = Math.round(width * (MAX_EDGE / height)); height = MAX_EDGE }
-          }
-          const canvas = document.createElement('canvas')
-          canvas.width = width; canvas.height = height
-          const ctx = canvas.getContext('2d')
-          ctx.drawImage(img, 0, 0, width, height)
-          // 0.85 quality JPEG — small but visually clean for a headshot.
-          const dataUrl = canvas.toDataURL('image/jpeg', 0.85)
-          resolve(dataUrl.split(',')[1])
-        }
-        img.onerror = reject
-        img.src = e.target.result
-      }
-      reader.onerror = reject
-      reader.readAsDataURL(file)
-    })
   }
 
   // Generate an AI preview (does NOT save). Counts against the per-session cap.
