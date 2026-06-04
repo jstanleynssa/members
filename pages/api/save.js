@@ -27,14 +27,22 @@ export default async function handler(req, res) {
   const targetEmail =
     isAdmin && req.body.email ? req.body.email : session.user.email
 
+  // Build the update payload. Only include directory_opt_out when the caller
+  // actually sent it — otherwise forms that don't have the checkbox (the
+  // dashboard's inline form) would overwrite an existing opt-out back to false.
+  const updates = {
+    first_name, last_name, job_title, company,
+    address, city, state, zip,
+    phone, mobile_phone, website, linkedin_url,
+    bio, financial_disclosure,
+  }
+  if (Object.prototype.hasOwnProperty.call(req.body, 'directory_opt_out')) {
+    updates.directory_opt_out = req.body.directory_opt_out === true
+  }
+
   const { error } = await supabaseAdmin
     .from('members')
-    .update({
-      first_name, last_name, job_title, company,
-      address, city, state, zip,
-      phone, mobile_phone, website, linkedin_url,
-      bio, financial_disclosure,
-    })
+    .update(updates)
     .eq('email', targetEmail)
 
   if (error) return res.status(500).json({ error: error.message })
