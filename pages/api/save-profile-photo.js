@@ -1,16 +1,43 @@
 import { createClient } from '@supabase/supabase-js'
 
-const HEADSHOT_PROMPT = `Convert the uploaded photo into a professional executive headshot suitable for LinkedIn profiles, corporate websites, speaker biographies, advisor directories, and professional marketing materials.
-Preserve the person's exact identity, facial features, age, ethnicity, hairstyle, expression, and distinguishing characteristics. Do not materially alter the person's appearance or create a different face.
-Recompose the image into a square (1:1) format. Center the subject naturally within the frame and ensure there is comfortable negative space around the head and shoulders. The composition should resemble a professionally photographed corporate portrait rather than a tightly cropped selfie.
-If the original image is tightly cropped, intelligently zoom out and realistically generate the missing areas of the image, including shoulders, clothing, background, and surrounding space. Maintain accurate proportions and a natural appearance.
-Replace casual clothing with polished professional business attire appropriate for an executive, financial advisor, attorney, consultant, or business professional. Clothing should appear realistic, tailored, and professional.
-Create professional studio-quality lighting with natural skin tones, sharp focus on the eyes, realistic skin texture, balanced contrast, and subtle retouching. Remove distractions, harsh shadows, glare, image noise, and low-quality artifacts while maintaining a natural, authentic appearance.
-Randomly select and generate one professional background style that complements the subject: modern corporate office, executive office environment, soft professional studio backdrop, neutral gray or blue gradient background, premium bokeh background, contemporary city skyline, upscale business district, or bright professional workspace. Ensure the background remains softly blurred and does not distract from the subject.
-Final result should appear as a professionally commissioned corporate headshot captured by an experienced portrait photographer using a high-end camera and professional lighting. High resolution, photorealistic, authentic, polished, trustworthy, and approachable.
-Frame subject from mid-chest to top of head, occupying approximately 60-70% of the image height. Maintain 15-20% negative space above the head and balanced side margins.`
+// Base instruction — emphasizes a LIGHT touch on the face (keep the person
+// looking like themselves; only ~5-8% retouching), while still producing a
+// polished professional headshot with a generated background and attire.
+const HEADSHOT_BASE = `Convert the uploaded photo into a professional executive headshot suitable for LinkedIn profiles, corporate websites, speaker biographies, advisor directories, and professional marketing materials.
+CRITICAL — preserve the person's exact identity: keep their real facial features, face shape, age, ethnicity, hairstyle, skin tone, and natural expression. This must clearly look like the same person. Apply only very light, natural retouching to the FACE — roughly 5-8%: gently even skin tone and softly reduce temporary blemishes and harsh shadows, but KEEP natural skin texture, real wrinkles, pores, and character. Do NOT smooth the face into a plastic or airbrushed look, do not slim or reshape the face, do not change the eyes, nose, mouth, or apparent age.
+Recompose the image into a square (1:1) format. Center the subject naturally with comfortable negative space around the head and shoulders — a professionally photographed corporate portrait, not a tightly cropped selfie. If the original is tightly cropped, intelligently and realistically extend the missing shoulders, clothing, and background with accurate proportions.
+Create professional studio-quality lighting with natural skin tones, sharp focus on the eyes, realistic skin texture, and balanced contrast. Remove image noise, glare, and low-quality artifacts while keeping a natural, authentic appearance.
+Frame subject from mid-chest to top of head, occupying approximately 60-70% of the image height, with 15-20% negative space above the head and balanced side margins.
+Final result: a professionally commissioned corporate headshot captured by an experienced portrait photographer with a high-end camera — photorealistic, authentic, polished, trustworthy, approachable, and unmistakably the same person.`
 
-const HEADSHOT_NEGATIVE = `face swap, altered identity, different person, beauty filter, glamour photography, fashion model pose, cartoon, illustration, painting, anime, unrealistic skin, plastic skin, excessive retouching, distorted facial features, asymmetrical eyes, exaggerated smile, extreme sharpening, low resolution, pixelation, artifacts, text, watermark, logo, cropped forehead, cropped chin, tight crop, selfie framing, dramatic cinematic lighting, fantasy background`
+// Rotating ATTIRE options — a different one is chosen per attempt so the three
+// generations differ visibly. Still always professional business attire.
+const ATTIRE_OPTIONS = [
+  'Dress the subject in a tailored charcoal or navy business suit with a crisp dress shirt (no tie or a subtle tie), realistic and well-fitted.',
+  'Dress the subject in a smart business-casual blazer over an open-collar dress shirt, polished and professional.',
+  'Dress the subject in a classic dark suit jacket with a light dress shirt and a tasteful tie, executive style.',
+  'Dress the subject in a modern slim-fit suit in a medium blue or gray tone with a clean dress shirt, contemporary professional look.',
+]
+
+// Rotating BACKGROUND options — a different one per attempt.
+const BACKGROUND_OPTIONS = [
+  'Place the subject against a softly blurred modern corporate office background.',
+  'Place the subject against a softly blurred neutral gray-to-blue studio gradient backdrop.',
+  'Place the subject against a softly blurred contemporary city skyline / upscale business district.',
+  'Place the subject against a softly blurred bright professional workspace with warm natural light.',
+]
+
+// Build the full prompt for a given attempt (0-indexed). Rotating the attire
+// and background by attempt guarantees visible variation between tries.
+function buildPrompt(attempt = 0) {
+  const attire = ATTIRE_OPTIONS[attempt % ATTIRE_OPTIONS.length]
+  const background = BACKGROUND_OPTIONS[attempt % BACKGROUND_OPTIONS.length]
+  return `${HEADSHOT_BASE}
+${attire}
+${background} Keep the background softly blurred so it never distracts from the subject.`
+}
+
+const HEADSHOT_NEGATIVE = `face swap, altered identity, different person, beauty filter, glamour photography, fashion model pose, cartoon, illustration, painting, anime, plastic skin, airbrushed skin, over-smoothed skin, excessive retouching, distorted facial features, asymmetrical eyes, exaggerated smile, slimmed face, reshaped face, changed age, extreme sharpening, low resolution, pixelation, artifacts, text, watermark, logo, cropped forehead, cropped chin, tight crop, selfie framing, dramatic cinematic lighting, fantasy background`
 
 function slugify(str) {
   return (str || '').toLowerCase().trim()
@@ -26,10 +53,12 @@ export default async function handler(req, res) {
     process.env.SUPABASE_SERVICE_ROLE_KEY
   )
 
-  const { email, photoUrl, imageData, mimeType, enhance = true } = req.body
+  const { email, photoUrl, imageData, mimeType, enhance = true, attempt = 0, saveOriginal = false } = req.body
   if (!email || (!photoUrl && !imageData)) {
     return res.status(400).json({ error: 'Missing email and photo source' })
   }
+  // saveOriginal forces a plain (un-enhanced) save even if enhance was sent.
+  const doEnhance = enhance && !saveOriginal
 
   // ── Fetch member details for filename and alt text ────────────────────────
   const { data: member } = await supabase
@@ -61,7 +90,7 @@ export default async function handler(req, res) {
     let imageUrl  = photoUrl || null
 
     // ── Step 1: If base64 upload, store as temp file to get a public URL ─────
-    if (imageData && enhance && falKey) {
+    if (imageData && doEnhance && falKey) {
       const tempPath = `temp/${slugify(email)}-${Date.now()}.jpg`
       await supabase.storage
         .from('profile-photos')
@@ -74,20 +103,25 @@ export default async function handler(req, res) {
     }
 
     // ── Step 2: AI enhancement via FLUX.1 Kontext [pro] ──────────────────────
-    if (enhance && falKey && imageUrl) {
+    if (doEnhance && falKey && imageUrl) {
       try {
-        console.log(`[photo] Submitting to FLUX.1 Kontext [pro] for ${email}...`)
+        console.log(`[photo] Submitting to FLUX.1 Kontext [pro] for ${email} (attempt ${attempt})...`)
+        // A different seed per attempt produces genuinely different output.
+        // (If fal's model ignores `seed`, the rotating attire/background in the
+        // prompt still guarantees visible variation between attempts.)
+        const seed = Math.floor(Math.random() * 1e9)
         const falRes = await fetch('https://fal.run/fal-ai/flux-pro/kontext', {
           method: 'POST',
           headers: { 'Authorization': `Key ${falKey}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({
             image_url: imageUrl,
-            prompt: HEADSHOT_PROMPT,
+            prompt: buildPrompt(attempt),
             negative_prompt: HEADSHOT_NEGATIVE,
             aspect_ratio: '1:1',
             image_size: { width: 676, height: 696 },
             guidance_scale: 3.5,
             num_inference_steps: 28,
+            seed,
             output_format: 'jpeg'
           })
         })
