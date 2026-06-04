@@ -444,59 +444,56 @@ function SimpleEdit({ member, userEmail }) {
 
           {photoPreview && (
             <div>
-              {/* Show the AI result (in a true 1:1 frame so the crop is honest)
-                  once generated; otherwise show the selected original. */}
+              {/* ── Option 1: the photo they uploaded, shown in the real square crop ── */}
+              <p style={{ fontSize: '12px', color: '#374151', fontWeight: 600, marginBottom: '8px', textAlign: 'center' }}>
+                Your uploaded photo
+              </p>
+              <div style={{ width: '100%', aspectRatio: '1 / 1', borderRadius: '6px', overflow: 'hidden', border: `1px solid ${GRAY.border}`, marginBottom: '6px' }}>
+                <img src={photoPreview} alt="Your uploaded photo" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              </div>
+              <button type="button" disabled={!!photoBusy} onClick={() => commitPhoto('original')} style={{ ...btn('#374151', !!photoBusy), width: '100%', marginBottom: '6px' }}>
+                {photoBusy === 'committing' ? 'Saving…' : '↑ Use My Uploaded Photo'}
+              </button>
+              <p style={{ fontSize: '11px', color: GRAY.text, textAlign: 'center', marginBottom: '1.25rem' }}>
+                Shown in the square crop used on your profile.
+              </p>
+
+              {/* ── Option 2: the AI version (preview before saving) ────────────── */}
               {aiPreviewUrl ? (
                 <>
                   <p style={{ fontSize: '12px', color: NSSA.dark, fontWeight: 600, marginBottom: '8px', textAlign: 'center' }}>
                     AI headshot preview {aiGenCount > 1 ? `(version ${aiGenCount})` : ''}
                   </p>
-                  <div style={{ width: '100%', aspectRatio: '1 / 1', borderRadius: '6px', overflow: 'hidden', border: `1px solid ${GRAY.border}`, marginBottom: '4px' }}>
+                  <div style={{ width: '100%', aspectRatio: '1 / 1', borderRadius: '6px', overflow: 'hidden', border: `2px solid ${NSSA.light}`, marginBottom: '6px' }}>
                     <img src={aiPreviewUrl} alt="AI headshot preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                   </div>
-                  <p style={{ fontSize: '11px', color: GRAY.text, textAlign: 'center', marginBottom: '1rem' }}>
-                    This is exactly how it will be saved (square crop). Not saved yet.
+                  <button type="button" disabled={!!photoBusy} onClick={() => commitPhoto('ai')} style={{ ...btn(NSSA.dark, !!photoBusy), width: '100%', marginBottom: '6px' }}>
+                    {photoBusy === 'committing' ? 'Saving…' : '✓ Use This AI Photo'}
+                  </button>
+                  {!aiLimitReached && (
+                    <button type="button" disabled={!!photoBusy} onClick={generatePreview} style={{ ...btn(NSSA.medium, !!photoBusy), width: '100%' }}>
+                      {photoBusy === 'generating' ? 'Generating…' : `✦ Regenerate (${aiGenCount} of ${AI_GEN_LIMIT} used)`}
+                    </button>
+                  )}
+                  <p style={{ fontSize: '11px', color: GRAY.text, textAlign: 'center', marginTop: '6px' }}>
+                    Not saved yet — choose an option above.
                   </p>
                 </>
               ) : (
-                <>
-                  <p style={{ fontSize: '12px', color: GRAY.text, marginBottom: '8px', textAlign: 'center' }}>Selected photo</p>
-                  <img src={photoPreview} alt="Selected" style={{ width: '100%', maxHeight: '200px', objectFit: 'cover', objectPosition: 'top', borderRadius: '6px', border: `1px solid ${GRAY.border}`, marginBottom: '1rem' }} />
-                </>
+                !aiLimitReached && (
+                  <button type="button" disabled={!!photoBusy} onClick={generatePreview} style={{ ...btn(NSSA.dark, !!photoBusy), width: '100%' }}>
+                    {photoBusy === 'generating' ? 'Generating…' : '✦ Enhance with AI'}
+                  </button>
+                )
               )}
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {/* Save the currently-previewed AI image */}
-                {aiPreviewUrl && (
-                  <button type="button" disabled={!!photoBusy} onClick={() => commitPhoto('ai')} style={{ ...btn(NSSA.dark, !!photoBusy), width: '100%' }}>
-                    {photoBusy === 'committing' ? 'Saving…' : '✓ Use This Photo'}
-                  </button>
-                )}
-
-                {/* Generate / regenerate an AI version (capped) */}
-                {!aiLimitReached && (
-                  <button type="button" disabled={!!photoBusy} onClick={generatePreview} style={{ ...btn(aiPreviewUrl ? NSSA.medium : NSSA.dark, !!photoBusy), width: '100%' }}>
-                    {photoBusy === 'generating'
-                      ? 'Generating…'
-                      : aiGenCount === 0
-                        ? '✦ Enhance with AI'
-                        : `✦ Regenerate (${aiGenCount} of ${AI_GEN_LIMIT} used)`}
-                  </button>
-                )}
-
-                {/* Use the user's own photo as-is */}
-                <button type="button" disabled={!!photoBusy} onClick={() => commitPhoto('original')} style={{ ...btn('#374151', !!photoBusy), width: '100%' }}>
-                  {photoBusy === 'committing' ? 'Saving…' : '↑ Use My Original Photo'}
-                </button>
-              </div>
 
               {!aiLimitReached ? (
                 <p style={{ fontSize: '11px', color: GRAY.text, marginTop: '8px', lineHeight: 1.4 }}>
-                  <strong>Enhance with AI</strong> creates a polished professional headshot — new background and attire, with only light, natural touch-ups to your face. Nothing is saved until you choose <strong>Use This Photo</strong>.
+                  <strong>Enhance with AI</strong> creates a polished professional headshot — new background and attire, with only light, natural touch-ups to your face. Nothing is saved until you pick an option.
                 </p>
               ) : (
                 <div style={{ marginTop: '10px', padding: '10px 12px', background: GRAY.bg, border: `1px solid ${GRAY.border}`, borderRadius: '6px', fontSize: '12px', color: GRAY.text, lineHeight: 1.5 }}>
-                  You’ve used all {AI_GEN_LIMIT} AI attempts for this session. Choose <strong>Use This Photo</strong> to keep the current AI version, or <strong>Use My Original Photo</strong>.
+                  You’ve used all {AI_GEN_LIMIT} AI attempts for this session. Choose <strong>Use This AI Photo</strong> to keep the current AI version, or <strong>Use My Uploaded Photo</strong> above.
                 </div>
               )}
             </div>
