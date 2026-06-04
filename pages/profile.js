@@ -588,6 +588,17 @@ function BuildWizard({ member, userEmail, certLabel }) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
 
+  // Bio-generation inputs — transient (NOT member columns, so not persisted by
+  // /api/save). They only feed the bio generator. The generated text lands in
+  // form.bio, which IS a column and gets saved.
+  const [bioInputs, setBioInputs] = useState({ talking_points: '', years_experience: '', specialty: '' })
+  const [bioBusy, setBioBusy] = useState(false)
+  const [bioError, setBioError] = useState(null)
+  function updateBioInput(e) {
+    const { name, value } = e.target
+    setBioInputs(b => ({ ...b, [name]: value }))
+  }
+
   // Photo state (reuses the same endpoint + flow as Simple Edit)
   const fileInputRef = useRef(null)
   const [currentPhoto, setCurrentPhoto] = useState(member.profile_photo || null)
@@ -704,6 +715,34 @@ function BuildWizard({ member, userEmail, certLabel }) {
     } catch (err) { setPhotoMsg({ type: 'err', text: err.message }) } finally { setPhotoBusy(null) }
   }
 
+  // Generate a bio via the AI endpoint, sending grounding facts (already
+  // collected) plus the transient bio inputs. Result fills form.bio (editable).
+  async function generateBio() {
+    if (bioBusy) return
+    setBioBusy(true); setBioError(null)
+    try {
+      const res = await fetch('/api/generate-bio', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          first_name: form.first_name, last_name: form.last_name,
+          job_title: form.job_title, company: form.company,
+          city: form.city, state: form.state,
+          talking_points: bioInputs.talking_points,
+          years_experience: bioInputs.years_experience,
+          specialty: bioInputs.specialty,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok || !data.ok) throw new Error(data.error || 'Generation failed')
+      setForm(f => ({ ...f, bio: data.bio }))
+    } catch (err) {
+      setBioError(err.message)
+    } finally {
+      setBioBusy(false)
+    }
+  }
+
   const card = { background: 'white', borderRadius: '10px', border: `1px solid ${GRAY.border}`, padding: '2rem' }
   const twoCol = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 1rem' }
   const btnP = (disabled) => ({ padding: '11px 26px', fontSize: '14px', fontWeight: 600, background: disabled ? GRAY.bg : NSSA.dark, color: disabled ? GRAY.text : 'white', border: 'none', borderRadius: '6px', cursor: disabled ? 'not-allowed' : 'pointer' })
@@ -760,18 +799,37 @@ function BuildWizard({ member, userEmail, certLabel }) {
         </div>
       )}
 
-      {/* ── Step 4: Your Story (bio placeholder + financial disclosure) ──── */}
+      {/* ── Step 4: Your Story (AI bio generation + financial disclosure) ── */}
       {step === 3 && (
         <div>
           <h2 style={{ fontSize: '18px', color: NSSA.dark, marginBottom: '6px' }}>Your professional story</h2>
-          <p style={{ fontSize: '13px', color: GRAY.text, marginBottom: '1rem', lineHeight: 1.6 }}>
-            (AI-assisted bio generation is coming to this step. For now, write or paste your bio below.)
+          <p style={{ fontSize: '13px', color: GRAY.text, marginBottom: '1.25rem', lineHeight: 1.6 }}>
+            Tell us a bit about yourself and we'll draft a polished, search-optimized bio for you. You can edit it afterward — and it doesn't need to be perfect here.
           </p>
-          <Field label="Bio" name="bio" value={form.bio} onChange={update} textarea minHeight="160px"
-            placeholder="Tell clients about your background, experience, and approach..." />
+
+          <div style={twoCol}>
+            <Field label="Years of experience (optional)" name="years_experience" value={bioInputs.years_experience} onChange={updateBioInput} placeholder="e.g. 15" />
+            <Field label="Areas of specialty (optional)" name="specialty" value={bioInputs.specialty} onChange={updateBioInput} placeholder="Social Security, Medicare/IRMAA, retirement income" />
+          </div>
+
+          <Field label="Tell us about yourself" name="talking_points" value={bioInputs.talking_points} onChange={updateBioInput} textarea minHeight="120px"
+            placeholder="Professional history, how you help clients, and a few personal facts — hobbies, family, anything that makes you, you. Doesn't need to be polished."
+            hint="The more you share, the better your bio. This is the raw material — we'll shape it." />
+
+          <div style={{ margin: '0.5rem 0 1.25rem' }}>
+            <button type="button" onClick={generateBio} disabled={bioBusy}
+              style={{ padding: '11px 24px', fontSize: '14px', fontWeight: 600, background: bioBusy ? GRAY.bg : NSSA.medium, color: bioBusy ? GRAY.text : 'white', border: 'none', borderRadius: '6px', cursor: bioBusy ? 'wait' : 'pointer' }}>
+              {bioBusy ? 'Writing your bio…' : (form.bio.trim() ? '✦ Regenerate Bio' : '✦ Generate My Bio')}
+            </button>
+            {bioError && <p style={{ fontSize: '13px', color: RED.text, marginTop: '8px' }}>{bioError}</p>}
+          </div>
+
+          <Field label="Your Bio" name="bio" value={form.bio} onChange={update} textarea minHeight="180px"
+            placeholder="Your generated bio will appear here — or write your own. You can freely edit after generating." />
           <p style={{ fontSize: '11px', marginTop: '-8px', color: (form.bio || '').trim().length >= BIO_MIN ? GREEN.text : GRAY.text }}>
             {(form.bio || '').trim().length} characters{(form.bio || '').trim().length < BIO_MIN ? ` — aim for at least ${BIO_MIN}` : ' ✓'}
           </p>
+
           <div style={{ marginTop: '1.25rem' }}>
             <Field label="Financial Disclosure" name="financial_disclosure" value={form.financial_disclosure} onChange={update} textarea
               placeholder="e.g. Securities offered through XYZ Member FINRA/SIPC..." hint="Optional. Displayed at the bottom of your directory profile." />
