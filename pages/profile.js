@@ -54,6 +54,27 @@ function normalizeStateCode(raw) {
 
 const BIO_MIN = 200 // soft target; never blocks saving
 
+// Convert a stored bio (which may be HTML <p>…</p> from the old Zapier flow,
+// or already plain text) into clean plain text with blank lines between
+// paragraphs. Mirrors the directory's bioToParagraphs logic so what the
+// advisor edits matches exactly what the directory renders. Idempotent: a
+// plain-text bio passes through essentially unchanged.
+function htmlBioToText(bio) {
+  if (!bio) return ''
+  const looksHtml = /<[a-z][\s\S]*>/i.test(bio)
+  if (!looksHtml) return bio.trim()
+  const paras = bio
+    .replace(/<\/(p|div)>/gi, '\n\n')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .split(/\n{2,}/)
+    .map(s => s.trim())
+    .filter(Boolean)
+  return paras.join('\n\n')
+}
+
 export async function getServerSideProps(context) {
   const supabaseServer = createServerSupabaseClient(context)
   const { data: { session } } = await supabaseServer.auth.getSession()
@@ -155,7 +176,7 @@ function SimpleEdit({ member, userEmail }) {
     mobile_phone:         member.mobile_phone         || '',
     website:              member.website              || '',
     linkedin_url:         member.linkedin_url         || '',
-    bio:                  member.bio                  || '',
+    bio:                  htmlBioToText(member.bio),
     financial_disclosure: member.financial_disclosure || '',
     directory_opt_out:    member.directory_opt_out    === true,
   })
