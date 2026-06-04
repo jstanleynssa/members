@@ -15,7 +15,7 @@
 
 import { createServerSupabaseClient } from '@supabase/auth-helpers-nextjs'
 import { createClient } from '@supabase/supabase-js'
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import Link from 'next/link'
 
 const NSSA  = { dark: '#13405E', medium: '#1C80BC', light: '#8ECAEE' }
@@ -165,6 +165,69 @@ function SimpleEdit({ member, userEmail }) {
   const [saveError, setSaveError] = useState(null)
   const [zipError, setZipError] = useState(null)
 
+  // ── Photo upload state (ported from the existing editor) ──────────────────
+  const fileInputRef = useRef(null)
+  const [currentPhoto, setCurrentPhoto] = useState(member.profile_photo || null)
+  const [selectedFile, setSelectedFile] = useState(null)
+  const [photoPreview, setPhotoPreview] = useState(null)
+  const [photoLoading, setPhotoLoading] = useState(null) // 'asis' | 'ai' | null
+  const [photoSuccess, setPhotoSuccess] = useState(null)
+  const [photoError, setPhotoError]     = useState(null)
+
+  function handleFileSelect(e) {
+    const file = e.target.files[0]
+    if (!file) return
+    // Guard against oversized uploads (base64 POST can blow the serverless body
+    // limit). ~8MB original is a reasonable ceiling before we'd need resizing.
+    if (file.size > 8 * 1024 * 1024) {
+      setPhotoError('Please choose an image under 8 MB.')
+      if (fileInputRef.current) fileInputRef.current.value = ''
+      return
+    }
+    setSelectedFile(file)
+    setPhotoSuccess(null)
+    setPhotoError(null)
+    const reader = new FileReader()
+    reader.onload = ev => setPhotoPreview(ev.target.result)
+    reader.readAsDataURL(file)
+  }
+
+  async function handlePhotoUpload(enhance) {
+    if (!selectedFile) return
+    setPhotoLoading(enhance ? 'ai' : 'asis')
+    setPhotoError(null)
+    setPhotoSuccess(null)
+    try {
+      const base64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = e => resolve(e.target.result.split(',')[1])
+        reader.onerror = reject
+        reader.readAsDataURL(selectedFile)
+      })
+      const res = await fetch('/api/save-profile-photo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: userEmail,
+          imageData: base64,
+          mimeType: selectedFile.type || 'image/jpeg',
+          enhance,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok || !data.ok) throw new Error(data.error || 'Upload failed')
+      setCurrentPhoto(data.profile_photo + '?t=' + Date.now())
+      setSelectedFile(null)
+      setPhotoPreview(null)
+      setPhotoSuccess(enhance ? 'AI-enhanced photo saved!' : 'Photo saved!')
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    } catch (err) {
+      setPhotoError(err.message)
+    } finally {
+      setPhotoLoading(null)
+    }
+  }
+
   function handleChange(e) {
     const { name, value, type, checked } = e.target
     setForm(f => ({ ...f, [name]: type === 'checkbox' ? checked : value }))
@@ -210,6 +273,7 @@ function SimpleEdit({ member, userEmail }) {
   const bioLen = (form.bio || '').trim().length
 
   return (
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 300px', gap: '2rem', alignItems: 'start' }}>
     <form onSubmit={handleSave}>
       <div style={{ background: 'white', borderRadius: '10px', border: `1px solid ${GRAY.border}`, padding: '2rem' }}>
 
@@ -284,6 +348,65 @@ function SimpleEdit({ member, userEmail }) {
         </div>
       </div>
     </form>
+
+      {/* ── Photo sidebar (ported from existing editor) ───────────────────── */}
+      <div style={{ position: 'sticky', top: '2rem' }}>
+        <div style={{ background: 'white', borderRadius: '10px', border: `1px solid ${GRAY.border}`, padding: '1.5rem' }}>
+          <h3 style={{ fontSize: '13px', fontWeight: 600, color: NSSA.dark, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '1.25rem', paddingBottom: '6px', borderBottom: `2px solid ${NSSA.light}` }}>
+            Profile Photo
+          </h3>
+
+          <div style={{ marginBottom: '1.25rem', textAlign: 'center' }}>
+            {currentPhoto ? (
+              <img src={currentPhoto} alt="Profile photo" style={{ width: '180px', height: '185px', objectFit: 'cover', objectPosition: 'top', borderRadius: '8px', border: `1px solid ${GRAY.border}` }} />
+            ) : (
+              <div style={{ width: '180px', height: '185px', background: GRAY.bg, borderRadius: '8px', border: `1px solid ${GRAY.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto', color: GRAY.text, fontSize: '13px' }}>
+                No photo yet
+              </div>
+            )}
+          </div>
+
+          <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={handleFileSelect} style={{ display: 'none' }} />
+          <button type="button" onClick={() => fileInputRef.current?.click()} style={{ ...btn(NSSA.medium, false), width: '100%', marginBottom: '1rem' }}>
+            {selectedFile ? '↺ Choose Different Photo' : '↑ Choose Photo'}
+          </button>
+
+          {photoPreview && (
+            <div>
+              <p style={{ fontSize: '12px', color: GRAY.text, marginBottom: '8px', textAlign: 'center' }}>Preview</p>
+              <img src={photoPreview} alt="Preview" style={{ width: '100%', maxHeight: '200px', objectFit: 'cover', objectPosition: 'top', borderRadius: '6px', border: `1px solid ${GRAY.border}`, marginBottom: '1rem' }} />
+              <p style={{ fontSize: '12px', fontWeight: 500, color: '#374151', marginBottom: '8px' }}>How would you like to upload this?</p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <button type="button" disabled={!!photoLoading} onClick={() => handlePhotoUpload(false)} style={{ ...btn('#374151', !!photoLoading), width: '100%' }}>
+                  {photoLoading === 'asis' ? 'Uploading…' : '↑ Upload As-Is'}
+                </button>
+                <button type="button" disabled={!!photoLoading} onClick={() => handlePhotoUpload(true)} style={{ ...btn(NSSA.dark, !!photoLoading), width: '100%' }}>
+                  {photoLoading === 'ai' ? 'Enhancing…' : '✦ Enhance with AI'}
+                </button>
+              </div>
+              <p style={{ fontSize: '11px', color: GRAY.text, marginTop: '8px', lineHeight: 1.4 }}>
+                <strong>Enhance with AI</strong> — upgrades to business attire, improves lighting and composition.
+              </p>
+            </div>
+          )}
+
+          {photoSuccess && (
+            <div style={{ marginTop: '10px', padding: '8px 12px', background: GREEN.bg, border: `1px solid ${GREEN.border}`, borderRadius: '6px', fontSize: '13px', color: GREEN.text }}>
+              ✓ {photoSuccess}
+            </div>
+          )}
+          {photoError && (
+            <div style={{ marginTop: '10px', padding: '8px 12px', background: RED.bg, border: `1px solid ${RED.border}`, borderRadius: '6px', fontSize: '13px', color: RED.text }}>
+              {photoError}
+            </div>
+          )}
+
+          <p style={{ fontSize: '11px', color: GRAY.text, marginTop: '12px', lineHeight: 1.5 }}>
+            Accepted formats: JPG, PNG, WebP. Best results with a clear photo of your face.
+          </p>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -323,7 +446,7 @@ export default function ProfilePage({ member, userEmail, mode }) {
         <span style={{ fontSize: '12px', color: GRAY.text }}>{userEmail}</span>
       </div>
 
-      <div style={{ maxWidth: '780px', margin: '0 auto', padding: '2rem' }}>
+      <div style={{ maxWidth: mode === 'edit' ? '1040px' : '780px', margin: '0 auto', padding: '2rem' }}>
         {mode === 'edit'
           ? <SimpleEdit member={member} userEmail={userEmail} />
           : <WizardPlaceholder member={member} />}
