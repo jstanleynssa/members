@@ -96,14 +96,18 @@ export async function getServerSideProps(context) {
     return { redirect: { destination: '/dashboard', permanent: false } }
   }
 
-  // Routing signal: a non-empty bio means they already have a built-out profile.
-  const hasBio = !!(member.bio && member.bio.trim())
+  // Routing signal: profile_completed marks an advisor who has finished the
+  // build-out wizard (or an existing advisor backfilled as complete). Completed
+  // → Simple Edit; otherwise → the staged build-out wizard. We fall back to
+  // bio-presence if the column is somehow absent, so routing is never undefined.
+  const completed = member.profile_completed === true
+    || (member.profile_completed == null && !!(member.bio && member.bio.trim()))
 
   return {
     props: {
       member: JSON.parse(JSON.stringify(member)),
       userEmail: session.user.email,
-      mode: hasBio ? 'edit' : 'wizard',
+      mode: completed ? 'edit' : 'wizard',
     },
   }
 }
@@ -540,18 +544,306 @@ function SimpleEdit({ member, userEmail }) {
   )
 }
 
-// ── Placeholder for the Build-Out Wizard (stage 2 of the build) ────────────
-function WizardPlaceholder({ member }) {
+// ════════════════════════════════════════════════════════════════════════
+// BUILD-OUT WIZARD — staged experience for new advisors (no completed profile)
+// Increment 1: shell + nav + progress + save-on-Next, with stages
+//   1 Welcome/identity · 2 Location · 3 Contact · 4 Bio (placeholder) · 5 Photo · 6 Review
+// The AI bio generation (stage 4) and SEO generation (stage 6) are wired as
+// placeholders here and built in the next increments.
+// ════════════════════════════════════════════════════════════════════════
+const WIZARD_STEPS = ['Welcome', 'Location', 'Contact', 'Your Story', 'Photo', 'Review']
+
+function ProgressBar({ step }) {
   return (
-    <div style={{ background: 'white', borderRadius: '10px', border: `1px solid ${GRAY.border}`, padding: '2.5rem', textAlign: 'center' }}>
-      <h2 style={{ fontSize: '18px', color: NSSA.dark, marginBottom: '0.5rem' }}>
-        Let's build your directory profile
-      </h2>
-      <p style={{ color: GRAY.text, fontSize: '14px', maxWidth: '440px', margin: '0 auto 1.5rem' }}>
-        The guided, step-by-step build-out experience will live here. For now this
-        is a placeholder — the simple editor is fully working for returning advisors.
+    <div style={{ marginBottom: '1.75rem' }}>
+      <div style={{ display: 'flex', gap: '6px', marginBottom: '8px' }}>
+        {WIZARD_STEPS.map((label, i) => (
+          <div key={label} style={{ flex: 1, height: '5px', borderRadius: '999px', background: i <= step ? NSSA.medium : GRAY.border, transition: 'background 0.3s' }} />
+        ))}
+      </div>
+      <p style={{ fontSize: '12px', color: GRAY.text, margin: 0 }}>
+        Step {step + 1} of {WIZARD_STEPS.length}: <strong style={{ color: NSSA.dark }}>{WIZARD_STEPS[step]}</strong>
       </p>
-      <Link href="/dashboard" style={{ fontSize: '13px', color: NSSA.medium, textDecoration: 'none' }}>← Back to dashboard</Link>
+    </div>
+  )
+}
+
+function BuildWizard({ member, userEmail, certLabel }) {
+  const [step, setStep] = useState(0)
+  const [form, setForm] = useState({
+    first_name:           member.first_name           || '',
+    last_name:            member.last_name            || '',
+    job_title:            member.job_title            || '',
+    company:              member.company              || '',
+    address:              member.address              || '',
+    city:                 member.city                 || '',
+    state:                normalizeStateCode(member.state),
+    zip:                  member.zip                  || '',
+    phone:                member.phone                || '',
+    mobile_phone:         member.mobile_phone         || '',
+    website:              member.website              || '',
+    linkedin_url:         member.linkedin_url         || '',
+    bio:                  htmlBioToText(member.bio),
+    financial_disclosure: member.financial_disclosure || '',
+  })
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState(null)
+
+  // Photo state (reuses the same endpoint + flow as Simple Edit)
+  const fileInputRef = useRef(null)
+  const [currentPhoto, setCurrentPhoto] = useState(member.profile_photo || null)
+  const [selectedFile, setSelectedFile] = useState(null)
+  const [photoPreview, setPhotoPreview] = useState(null)
+  const [aiPreviewUrl, setAiPreviewUrl] = useState(null)
+  const [photoBusy, setPhotoBusy] = useState(null)
+  const [photoMsg, setPhotoMsg] = useState(null)
+  const [aiGenCount, setAiGenCount] = useState(0)
+  const AI_GEN_LIMIT = 3
+  const aiLimitReached = aiGenCount >= AI_GEN_LIMIT
+
+  function update(e) {
+    const { name, value } = e.target
+    setForm(f => ({ ...f, [name]: value }))
+  }
+
+  // Persist the current fields to the member row (save-as-you-go).
+  async function persist(extra = {}) {
+    const res = await fetch('/api/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...form, ...extra }),
+    })
+    const data = await res.json()
+    if (!res.ok || !data.ok) throw new Error(data.error || 'Save failed')
+  }
+
+  // Per-step validation. Returns an error string or null.
+  function validateStep(s) {
+    if (s === 0) {
+      if (!form.first_name.trim() || !form.last_name.trim()) return 'Please enter your first and last name.'
+    }
+    if (s === 1) {
+      if (form.zip && !/^\d{5}$/.test(form.zip.trim())) return 'Zip must be 5 digits (e.g. 75001).'
+    }
+    return null
+  }
+
+  async function next() {
+    const v = validateStep(step)
+    if (v) { setError(v); return }
+    setError(null); setSaving(true)
+    try {
+      await persist()
+      setStep(s => Math.min(s + 1, WIZARD_STEPS.length - 1))
+      if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' })
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  function back() {
+    setError(null)
+    setStep(s => Math.max(s - 1, 0))
+  }
+
+  async function finish() {
+    setError(null); setSaving(true)
+    try {
+      await persist({ profile_completed: true })
+      // Reload so getServerSideProps re-routes them to the (now) Simple Edit view.
+      if (typeof window !== 'undefined') window.location.href = '/profile'
+    } catch (err) {
+      setError(err.message)
+      setSaving(false)
+    }
+  }
+
+  // ── Photo handlers (mirror Simple Edit) ─────────────────────────────────
+  function handleFileSelect(e) {
+    const file = e.target.files[0]
+    if (!file) return
+    if (file.size > 8 * 1024 * 1024) { setPhotoMsg({ type: 'err', text: 'Please choose an image under 8 MB.' }); return }
+    setSelectedFile(file); setAiPreviewUrl(null); setPhotoMsg(null)
+    const reader = new FileReader()
+    reader.onload = ev => setPhotoPreview(ev.target.result)
+    reader.readAsDataURL(file)
+  }
+  async function genPreview() {
+    if (!selectedFile || aiLimitReached || photoBusy) return
+    setPhotoBusy('generating'); setPhotoMsg(null)
+    try {
+      const base64 = await fileToResizedBase64(selectedFile)
+      const res = await fetch('/api/save-profile-photo', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: userEmail, imageData: base64, mimeType: 'image/jpeg', mode: 'preview', attempt: aiGenCount }),
+      })
+      const data = await res.json()
+      if (!res.ok || !data.ok) throw new Error(data.error || 'Generation failed')
+      setAiPreviewUrl(data.previewUrl + '?t=' + Date.now()); setAiGenCount(c => c + 1)
+    } catch (err) { setPhotoMsg({ type: 'err', text: err.message }) } finally { setPhotoBusy(null) }
+  }
+  async function commit(which) {
+    if (photoBusy) return
+    if (which === 'ai' && !aiPreviewUrl) return
+    if (which === 'original' && !selectedFile) return
+    setPhotoBusy('committing'); setPhotoMsg(null)
+    try {
+      const body = { email: userEmail, mode: 'commit' }
+      if (which === 'ai') body.previewUrl = aiPreviewUrl.split('?')[0]
+      else { body.imageData = await fileToResizedBase64(selectedFile); body.mimeType = 'image/jpeg'; body.saveOriginal = true }
+      const res = await fetch('/api/save-profile-photo', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      })
+      const data = await res.json()
+      if (!res.ok || !data.ok) throw new Error(data.error || 'Save failed')
+      setCurrentPhoto(data.profile_photo + '?t=' + Date.now())
+      setSelectedFile(null); setPhotoPreview(null); setAiPreviewUrl(null)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+      setPhotoMsg({ type: 'ok', text: which === 'ai' ? 'AI headshot saved.' : 'Photo saved.' })
+    } catch (err) { setPhotoMsg({ type: 'err', text: err.message }) } finally { setPhotoBusy(null) }
+  }
+
+  const card = { background: 'white', borderRadius: '10px', border: `1px solid ${GRAY.border}`, padding: '2rem' }
+  const twoCol = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 1rem' }
+  const btnP = (disabled) => ({ padding: '11px 26px', fontSize: '14px', fontWeight: 600, background: disabled ? GRAY.bg : NSSA.dark, color: disabled ? GRAY.text : 'white', border: 'none', borderRadius: '6px', cursor: disabled ? 'not-allowed' : 'pointer' })
+  const btnS = { padding: '11px 22px', fontSize: '14px', fontWeight: 600, background: 'white', color: GRAY.dark, border: `1px solid ${GRAY.border}`, borderRadius: '6px', cursor: 'pointer' }
+  const sBtn = (c, d) => ({ padding: '10px 18px', fontSize: '13px', fontWeight: 600, background: d ? GRAY.bg : c, color: d ? GRAY.text : 'white', border: 'none', borderRadius: '6px', cursor: d ? 'not-allowed' : 'pointer', width: '100%' })
+
+  return (
+    <div style={card}>
+      <ProgressBar step={step} />
+
+      {/* ── Step 1: Welcome / identity ──────────────────────────────────── */}
+      {step === 0 && (
+        <div>
+          <h2 style={{ fontSize: '20px', color: NSSA.dark, marginBottom: '6px' }}>Congratulations on earning your {certLabel} certification!</h2>
+          <p style={{ fontSize: '14px', color: GRAY.text, marginBottom: '1.5rem', lineHeight: 1.6 }}>
+            Let's build your listing for the NSSA Advisor Directory, where prospective clients find certified professionals. First, confirm your name and role.
+          </p>
+          <div style={twoCol}>
+            <Field label="First Name" name="first_name" value={form.first_name} onChange={update} required />
+            <Field label="Last Name"  name="last_name"  value={form.last_name}  onChange={update} required />
+          </div>
+          <div style={twoCol}>
+            <Field label="Job Title" name="job_title" value={form.job_title} onChange={update} placeholder="Financial Advisor" />
+            <Field label="Company"   name="company"   value={form.company}   onChange={update} placeholder="ABC Wealth Management" />
+          </div>
+        </div>
+      )}
+
+      {/* ── Step 2: Location ────────────────────────────────────────────── */}
+      {step === 1 && (
+        <div>
+          <h2 style={{ fontSize: '18px', color: NSSA.dark, marginBottom: '1.25rem' }}>Where are you located?</h2>
+          <Field label="Street Address" name="address" value={form.address} onChange={update} placeholder="123 Main St" />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0 1rem' }}>
+            <Field label="City" name="city" value={form.city} onChange={update} />
+            <StateSelect value={form.state} onChange={update} />
+            <Field label="Zip" name="zip" value={form.zip} onChange={update} placeholder="75001" />
+          </div>
+        </div>
+      )}
+
+      {/* ── Step 3: Contact ─────────────────────────────────────────────── */}
+      {step === 2 && (
+        <div>
+          <h2 style={{ fontSize: '18px', color: NSSA.dark, marginBottom: '1.25rem' }}>How can clients reach you?</h2>
+          <div style={twoCol}>
+            <Field label="Office Phone" name="phone"        value={form.phone}        onChange={update} placeholder="(555) 555-5555" type="tel" />
+            <Field label="Mobile Phone" name="mobile_phone" value={form.mobile_phone} onChange={update} placeholder="(555) 555-5555" type="tel" />
+          </div>
+          <div style={twoCol}>
+            <Field label="Website"  name="website"      value={form.website}      onChange={update} placeholder="https://yoursite.com" type="url" />
+            <Field label="LinkedIn" name="linkedin_url" value={form.linkedin_url} onChange={update} placeholder="https://linkedin.com/in/you" type="url" hint="Paste your full LinkedIn profile URL." />
+          </div>
+        </div>
+      )}
+
+      {/* ── Step 4: Your Story (bio placeholder + financial disclosure) ──── */}
+      {step === 3 && (
+        <div>
+          <h2 style={{ fontSize: '18px', color: NSSA.dark, marginBottom: '6px' }}>Your professional story</h2>
+          <p style={{ fontSize: '13px', color: GRAY.text, marginBottom: '1rem', lineHeight: 1.6 }}>
+            (AI-assisted bio generation is coming to this step. For now, write or paste your bio below.)
+          </p>
+          <Field label="Bio" name="bio" value={form.bio} onChange={update} textarea minHeight="160px"
+            placeholder="Tell clients about your background, experience, and approach..." />
+          <p style={{ fontSize: '11px', marginTop: '-8px', color: (form.bio || '').trim().length >= BIO_MIN ? GREEN.text : GRAY.text }}>
+            {(form.bio || '').trim().length} characters{(form.bio || '').trim().length < BIO_MIN ? ` — aim for at least ${BIO_MIN}` : ' ✓'}
+          </p>
+          <div style={{ marginTop: '1.25rem' }}>
+            <Field label="Financial Disclosure" name="financial_disclosure" value={form.financial_disclosure} onChange={update} textarea
+              placeholder="e.g. Securities offered through XYZ Member FINRA/SIPC..." hint="Optional. Displayed at the bottom of your directory profile." />
+          </div>
+        </div>
+      )}
+
+      {/* ── Step 5: Photo ───────────────────────────────────────────────── */}
+      {step === 4 && (
+        <div>
+          <h2 style={{ fontSize: '18px', color: NSSA.dark, marginBottom: '1.25rem' }}>Add your photo</h2>
+          <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr', gap: '1.5rem', alignItems: 'start' }}>
+            <div>
+              {currentPhoto
+                ? <img src={currentPhoto} alt="Profile" style={{ width: '160px', height: '160px', objectFit: 'cover', borderRadius: '8px', border: `1px solid ${GRAY.border}` }} />
+                : <div style={{ width: '160px', height: '160px', background: GRAY.bg, borderRadius: '8px', border: `1px solid ${GRAY.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: GRAY.text, fontSize: '12px', textAlign: 'center' }}>No photo yet</div>}
+            </div>
+            <div>
+              <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={handleFileSelect} style={{ display: 'none' }} />
+              <button type="button" onClick={() => fileInputRef.current?.click()} style={{ ...sBtn(NSSA.medium, false), marginBottom: '10px' }}>
+                {selectedFile ? '↺ Choose Different Photo' : '↑ Choose Photo'}
+              </button>
+
+              {photoPreview && (
+                <div>
+                  <div style={{ width: '140px', aspectRatio: '1/1', borderRadius: '6px', overflow: 'hidden', border: `1px solid ${GRAY.border}`, margin: '8px 0' }}>
+                    <img src={aiPreviewUrl || photoPreview} alt="preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxWidth: '260px' }}>
+                    {aiPreviewUrl && <button type="button" disabled={!!photoBusy} onClick={() => commit('ai')} style={sBtn(NSSA.dark, !!photoBusy)}>{photoBusy === 'committing' ? 'Saving…' : '✓ Use This AI Photo'}</button>}
+                    {!aiLimitReached && <button type="button" disabled={!!photoBusy} onClick={genPreview} style={sBtn(NSSA.medium, !!photoBusy)}>{photoBusy === 'generating' ? 'Generating…' : aiGenCount === 0 ? '✦ Enhance with AI' : `✦ Regenerate (${aiGenCount} of ${AI_GEN_LIMIT})`}</button>}
+                    <button type="button" disabled={!!photoBusy} onClick={() => commit('original')} style={sBtn('#374151', !!photoBusy)}>{photoBusy === 'committing' ? 'Saving…' : '↑ Use My Uploaded Photo'}</button>
+                  </div>
+                </div>
+              )}
+              {photoMsg && <p style={{ fontSize: '12px', marginTop: '8px', color: photoMsg.type === 'ok' ? GREEN.text : RED.text }}>{photoMsg.type === 'ok' ? '✓ ' : ''}{photoMsg.text}</p>}
+              <p style={{ fontSize: '11px', color: GRAY.text, marginTop: '10px', lineHeight: 1.5 }}>A photo is recommended but optional — you can add one later. JPG, PNG, or WebP.</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Step 6: Review ──────────────────────────────────────────────── */}
+      {step === 5 && (
+        <div>
+          <h2 style={{ fontSize: '18px', color: NSSA.dark, marginBottom: '1rem' }}>Review your profile</h2>
+          <p style={{ fontSize: '13px', color: GRAY.text, marginBottom: '1.25rem', lineHeight: 1.6 }}>
+            Here's what we have. When you finish, your profile is created — your directory listing goes live after a short review (you'll get an email when it's published).
+          </p>
+          <div style={{ fontSize: '14px', color: '#374151', lineHeight: 1.9 }}>
+            <div><strong>Name:</strong> {form.first_name} {form.last_name}</div>
+            {form.job_title && <div><strong>Title:</strong> {form.job_title}</div>}
+            {form.company && <div><strong>Company:</strong> {form.company}</div>}
+            <div><strong>Location:</strong> {[form.city, form.state].filter(Boolean).join(', ')}{form.zip ? ` ${form.zip}` : ''}</div>
+            {form.phone && <div><strong>Phone:</strong> {form.phone}</div>}
+            {form.website && <div><strong>Website:</strong> {form.website}</div>}
+            <div><strong>Photo:</strong> {currentPhoto ? 'Added ✓' : 'Not added'}</div>
+            <div><strong>Bio:</strong> {(form.bio || '').trim() ? `${(form.bio || '').trim().length} characters` : 'Not written yet'}</div>
+          </div>
+        </div>
+      )}
+
+      {error && <p style={{ fontSize: '13px', color: RED.text, marginTop: '1rem' }}>{error}</p>}
+
+      {/* Navigation */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '2rem', paddingTop: '1.25rem', borderTop: `1px solid ${GRAY.bg}` }}>
+        <button type="button" onClick={back} disabled={step === 0 || saving} style={{ ...btnS, visibility: step === 0 ? 'hidden' : 'visible' }}>← Back</button>
+        {step < WIZARD_STEPS.length - 1
+          ? <button type="button" onClick={next} disabled={saving} style={btnP(saving)}>{saving ? 'Saving…' : 'Save & Continue →'}</button>
+          : <button type="button" onClick={finish} disabled={saving} style={btnP(saving)}>{saving ? 'Finishing…' : 'Finish & Create Profile'}</button>}
+      </div>
     </div>
   )
 }
@@ -579,7 +871,7 @@ export default function ProfilePage({ member, userEmail, mode }) {
       <div style={{ maxWidth: mode === 'edit' ? '1040px' : '780px', margin: '0 auto', padding: '2rem' }}>
         {mode === 'edit'
           ? <SimpleEdit member={member} userEmail={userEmail} />
-          : <WizardPlaceholder member={member} />}
+          : <BuildWizard member={member} userEmail={userEmail} certLabel={certLabel} />}
       </div>
     </div>
   )
