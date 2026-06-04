@@ -165,7 +165,7 @@ function SimpleEdit({ member, userEmail }) {
   const [saveError, setSaveError] = useState(null)
   const [zipError, setZipError] = useState(null)
 
-  // ── Photo upload state (ported from the existing editor) ──────────────────
+  // ── Photo upload state (with capped AI regeneration) ──────────────────────
   const fileInputRef = useRef(null)
   const [currentPhoto, setCurrentPhoto] = useState(member.profile_photo || null)
   const [selectedFile, setSelectedFile] = useState(null)
@@ -173,12 +173,13 @@ function SimpleEdit({ member, userEmail }) {
   const [photoLoading, setPhotoLoading] = useState(null) // 'asis' | 'ai' | null
   const [photoSuccess, setPhotoSuccess] = useState(null)
   const [photoError, setPhotoError]     = useState(null)
+  const [aiGenCount, setAiGenCount]     = useState(0)     // hard cap: 3 per session
+  const AI_GEN_LIMIT = 3
+  const aiLimitReached = aiGenCount >= AI_GEN_LIMIT
 
   function handleFileSelect(e) {
     const file = e.target.files[0]
     if (!file) return
-    // Guard against oversized uploads (base64 POST can blow the serverless body
-    // limit). ~8MB original is a reasonable ceiling before we'd need resizing.
     if (file.size > 8 * 1024 * 1024) {
       setPhotoError('Please choose an image under 8 MB.')
       if (fileInputRef.current) fileInputRef.current.value = ''
@@ -190,20 +191,31 @@ function SimpleEdit({ member, userEmail }) {
     const reader = new FileReader()
     reader.onload = ev => setPhotoPreview(ev.target.result)
     reader.readAsDataURL(file)
+    // Note: aiGenCount is intentionally NOT reset — the cap is per session,
+    // regardless of how many times a new photo is chosen.
   }
 
+  // Reads the currently selected file as base64 (re-read each call so "Try
+  // Again" can re-run AI on the same original).
+  function fileToBase64(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = e => resolve(e.target.result.split(',')[1])
+      reader.onerror = reject
+      reader.readAsDataURL(file)
+    })
+  }
+
+  // enhance=true runs the AI headshot; counts against the per-session cap.
+  // Saves immediately (last result wins) — no separate accept step.
   async function handlePhotoUpload(enhance) {
     if (!selectedFile) return
+    if (enhance && aiLimitReached) return
     setPhotoLoading(enhance ? 'ai' : 'asis')
     setPhotoError(null)
     setPhotoSuccess(null)
     try {
-      const base64 = await new Promise((resolve, reject) => {
-        const reader = new FileReader()
-        reader.onload = e => resolve(e.target.result.split(',')[1])
-        reader.onerror = reject
-        reader.readAsDataURL(selectedFile)
-      })
+      const base64 = await fileToBase64(selectedFile)
       const res = await fetch('/api/save-profile-photo', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -217,10 +229,20 @@ function SimpleEdit({ member, userEmail }) {
       const data = await res.json()
       if (!res.ok || !data.ok) throw new Error(data.error || 'Upload failed')
       setCurrentPhoto(data.profile_photo + '?t=' + Date.now())
-      setSelectedFile(null)
-      setPhotoPreview(null)
-      setPhotoSuccess(enhance ? 'AI-enhanced photo saved!' : 'Photo saved!')
-      if (fileInputRef.current) fileInputRef.current.value = ''
+      if (enhance) {
+        const used = aiGenCount + 1
+        setAiGenCount(used)
+        setPhotoSuccess(
+          used >= AI_GEN_LIMIT
+            ? 'AI headshot saved. That was your last AI attempt for this session.'
+            : `AI-enhanced photo saved! (${used} of ${AI_GEN_LIMIT} AI attempts used)`
+        )
+      } else {
+        setPhotoSuccess('Photo saved!')
+        setSelectedFile(null)
+        setPhotoPreview(null)
+        if (fileInputRef.current) fileInputRef.current.value = ''
+      }
     } catch (err) {
       setPhotoError(err.message)
     } finally {
@@ -373,20 +395,37 @@ function SimpleEdit({ member, userEmail }) {
 
           {photoPreview && (
             <div>
-              <p style={{ fontSize: '12px', color: GRAY.text, marginBottom: '8px', textAlign: 'center' }}>Preview</p>
+              <p style={{ fontSize: '12px', color: GRAY.text, marginBottom: '8px', textAlign: 'center' }}>Selected photo</p>
               <img src={photoPreview} alt="Preview" style={{ width: '100%', maxHeight: '200px', objectFit: 'cover', objectPosition: 'top', borderRadius: '6px', border: `1px solid ${GRAY.border}`, marginBottom: '1rem' }} />
-              <p style={{ fontSize: '12px', fontWeight: 500, color: '#374151', marginBottom: '8px' }}>How would you like to upload this?</p>
+
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {/* Manual upload is always available */}
                 <button type="button" disabled={!!photoLoading} onClick={() => handlePhotoUpload(false)} style={{ ...btn('#374151', !!photoLoading), width: '100%' }}>
                   {photoLoading === 'asis' ? 'Uploading…' : '↑ Upload As-Is'}
                 </button>
-                <button type="button" disabled={!!photoLoading} onClick={() => handlePhotoUpload(true)} style={{ ...btn(NSSA.dark, !!photoLoading), width: '100%' }}>
-                  {photoLoading === 'ai' ? 'Enhancing…' : '✦ Enhance with AI'}
-                </button>
+
+                {/* AI generation — capped at AI_GEN_LIMIT per session */}
+                {!aiLimitReached && (
+                  <button type="button" disabled={!!photoLoading} onClick={() => handlePhotoUpload(true)} style={{ ...btn(NSSA.dark, !!photoLoading), width: '100%' }}>
+                    {photoLoading === 'ai'
+                      ? 'Enhancing…'
+                      : aiGenCount === 0
+                        ? '✦ Enhance with AI'
+                        : `✦ Try Again (${aiGenCount} of ${AI_GEN_LIMIT} used)`}
+                  </button>
+                )}
               </div>
-              <p style={{ fontSize: '11px', color: GRAY.text, marginTop: '8px', lineHeight: 1.4 }}>
-                <strong>Enhance with AI</strong> — upgrades to business attire, improves lighting and composition.
-              </p>
+
+              {!aiLimitReached ? (
+                <p style={{ fontSize: '11px', color: GRAY.text, marginTop: '8px', lineHeight: 1.4 }}>
+                  <strong>Enhance with AI</strong> — upgrades to business attire, improves lighting and composition.
+                  {aiGenCount > 0 && ' Each "Try Again" creates a fresh version; the most recent one is what\u2019s saved.'}
+                </p>
+              ) : (
+                <div style={{ marginTop: '10px', padding: '10px 12px', background: GRAY.bg, border: `1px solid ${GRAY.border}`, borderRadius: '6px', fontSize: '12px', color: GRAY.text, lineHeight: 1.5 }}>
+                  Sorry, we weren\u2019t able to create something you liked! You can upload your own headshot now using <strong>Upload As-Is</strong> above.
+                </div>
+              )}
             </div>
           )}
 
