@@ -1,5 +1,14 @@
 import { createClient } from '@supabase/supabase-js'
 
+// The image arrives as base64 in the JSON body. The client resizes before
+// sending (long edge ≤1200px), so payloads are normally small — but raise the
+// default 4MB API-route limit as a safety margin for edge cases.
+export const config = {
+  api: {
+    bodyParser: { sizeLimit: '10mb' },
+  },
+}
+
 // Base instruction — emphasizes a LIGHT touch on the face (keep the person
 // looking like themselves; only ~5-8% retouching), while still producing a
 // polished professional headshot with a generated background and attire.
