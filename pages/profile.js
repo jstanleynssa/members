@@ -165,16 +165,16 @@ function SimpleEdit({ member, userEmail }) {
   const [saveError, setSaveError] = useState(null)
   const [zipError, setZipError] = useState(null)
 
-  // ── Photo upload state (with capped AI regeneration) ──────────────────────
+  // ── Photo upload state (preview → choose → commit) ────────────────────────
   const fileInputRef = useRef(null)
   const [currentPhoto, setCurrentPhoto] = useState(member.profile_photo || null)
   const [selectedFile, setSelectedFile] = useState(null)
-  const [photoPreview, setPhotoPreview] = useState(null)
-  const [photoLoading, setPhotoLoading] = useState(null) // 'asis' | 'ai' | null
+  const [photoPreview, setPhotoPreview] = useState(null)   // data URL of the chosen ORIGINAL
+  const [aiPreviewUrl, setAiPreviewUrl] = useState(null)   // temp URL of the latest AI result (not yet saved)
+  const [photoBusy, setPhotoBusy]       = useState(null)   // 'generating' | 'committing' | null
   const [photoSuccess, setPhotoSuccess] = useState(null)
   const [photoError, setPhotoError]     = useState(null)
-  const [aiGenCount, setAiGenCount]     = useState(0)     // hard cap: 3 per session
-  const [aiGenerated, setAiGenerated]   = useState(false) // an AI version has been produced this session
+  const [aiGenCount, setAiGenCount]     = useState(0)      // hard cap: 3 per session
   const AI_GEN_LIMIT = 3
   const aiLimitReached = aiGenCount >= AI_GEN_LIMIT
 
@@ -187,13 +187,13 @@ function SimpleEdit({ member, userEmail }) {
       return
     }
     setSelectedFile(file)
+    setAiPreviewUrl(null)      // new photo clears any prior AI preview
     setPhotoSuccess(null)
     setPhotoError(null)
     const reader = new FileReader()
     reader.onload = ev => setPhotoPreview(ev.target.result)
     reader.readAsDataURL(file)
-    // Note: aiGenCount is intentionally NOT reset — the cap is per session,
-    // regardless of how many times a new photo is chosen.
+    // aiGenCount is intentionally NOT reset — the cap is per session.
   }
 
   // Downscale + compress the selected image in the browser before upload.
@@ -229,13 +229,10 @@ function SimpleEdit({ member, userEmail }) {
     })
   }
 
-  // enhance=true runs the AI headshot (counts against the cap). saveOriginal
-  // commits the user's unmodified photo. Each AI run passes the attempt index
-  // so the endpoint rotates attire/background and varies the seed.
-  async function handlePhotoUpload(enhance, saveOriginal = false) {
-    if (!selectedFile) return
-    if (enhance && aiLimitReached) return
-    setPhotoLoading(enhance ? 'ai' : 'asis')
+  // Generate an AI preview (does NOT save). Counts against the per-session cap.
+  async function generatePreview() {
+    if (!selectedFile || aiLimitReached || photoBusy) return
+    setPhotoBusy('generating')
     setPhotoError(null)
     setPhotoSuccess(null)
     try {
@@ -246,36 +243,59 @@ function SimpleEdit({ member, userEmail }) {
         body: JSON.stringify({
           email: userEmail,
           imageData: base64,
-          mimeType: 'image/jpeg', // always JPEG after client-side re-encode
-          enhance,
-          saveOriginal,
-          attempt: aiGenCount, // 0,1,2 → rotates attire/background per attempt
+          mimeType: 'image/jpeg',
+          mode: 'preview',
+          attempt: aiGenCount, // 0,1,2 → rotates attire/background + seed
         }),
       })
       const data = await res.json()
-      if (!res.ok || !data.ok) throw new Error(data.error || 'Upload failed')
-      setCurrentPhoto(data.profile_photo + '?t=' + Date.now())
-      if (enhance) {
-        const used = aiGenCount + 1
-        setAiGenCount(used)
-        setAiGenerated(true)
-        setPhotoSuccess(
-          used >= AI_GEN_LIMIT
-            ? 'AI headshot saved. That was your last AI attempt — keep this version, or use your original photo below.'
-            : `AI version saved (${used} of ${AI_GEN_LIMIT}). Try again for a different look, keep this one, or use your original.`
-        )
-      } else {
-        // Manual / original save — finished; clear the working selection.
-        setPhotoSuccess(saveOriginal ? 'Your original photo was saved.' : 'Photo saved!')
-        setSelectedFile(null)
-        setPhotoPreview(null)
-        setAiGenerated(false)
-        if (fileInputRef.current) fileInputRef.current.value = ''
-      }
+      if (!res.ok || !data.ok) throw new Error(data.error || 'Generation failed')
+      setAiPreviewUrl(data.previewUrl + '?t=' + Date.now())
+      setAiGenCount(c => c + 1)
     } catch (err) {
       setPhotoError(err.message)
     } finally {
-      setPhotoLoading(null)
+      setPhotoBusy(null)
+    }
+  }
+
+  // Commit a chosen image as the saved profile photo.
+  //   which = 'ai'       → promote the current AI preview
+  //   which = 'original' → save the user's original photo as-is
+  async function commitPhoto(which) {
+    if (photoBusy) return
+    if (which === 'ai' && !aiPreviewUrl) return
+    if (which === 'original' && !selectedFile) return
+    setPhotoBusy('committing')
+    setPhotoError(null)
+    setPhotoSuccess(null)
+    try {
+      const body = { email: userEmail, mode: 'commit' }
+      if (which === 'ai') {
+        body.previewUrl = aiPreviewUrl.split('?')[0] // strip cache-buster
+      } else {
+        body.imageData = await fileToResizedBase64(selectedFile)
+        body.mimeType = 'image/jpeg'
+        body.saveOriginal = true
+      }
+      const res = await fetch('/api/save-profile-photo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      const data = await res.json()
+      if (!res.ok || !data.ok) throw new Error(data.error || 'Save failed')
+      setCurrentPhoto(data.profile_photo + '?t=' + Date.now())
+      setPhotoSuccess(which === 'ai' ? 'Your AI headshot has been saved.' : 'Your photo has been saved.')
+      // Done — clear the working selection so the panel returns to its resting state.
+      setSelectedFile(null)
+      setPhotoPreview(null)
+      setAiPreviewUrl(null)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    } catch (err) {
+      setPhotoError(err.message)
+    } finally {
+      setPhotoBusy(null)
     }
   }
 
@@ -424,40 +444,59 @@ function SimpleEdit({ member, userEmail }) {
 
           {photoPreview && (
             <div>
-              <p style={{ fontSize: '12px', color: GRAY.text, marginBottom: '8px', textAlign: 'center' }}>Selected photo</p>
-              <img src={photoPreview} alt="Preview" style={{ width: '100%', maxHeight: '200px', objectFit: 'cover', objectPosition: 'top', borderRadius: '6px', border: `1px solid ${GRAY.border}`, marginBottom: '1rem' }} />
+              {/* Show the AI result (in a true 1:1 frame so the crop is honest)
+                  once generated; otherwise show the selected original. */}
+              {aiPreviewUrl ? (
+                <>
+                  <p style={{ fontSize: '12px', color: NSSA.dark, fontWeight: 600, marginBottom: '8px', textAlign: 'center' }}>
+                    AI headshot preview {aiGenCount > 1 ? `(version ${aiGenCount})` : ''}
+                  </p>
+                  <div style={{ width: '100%', aspectRatio: '1 / 1', borderRadius: '6px', overflow: 'hidden', border: `1px solid ${GRAY.border}`, marginBottom: '4px' }}>
+                    <img src={aiPreviewUrl} alt="AI headshot preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  </div>
+                  <p style={{ fontSize: '11px', color: GRAY.text, textAlign: 'center', marginBottom: '1rem' }}>
+                    This is exactly how it will be saved (square crop). Not saved yet.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p style={{ fontSize: '12px', color: GRAY.text, marginBottom: '8px', textAlign: 'center' }}>Selected photo</p>
+                  <img src={photoPreview} alt="Selected" style={{ width: '100%', maxHeight: '200px', objectFit: 'cover', objectPosition: 'top', borderRadius: '6px', border: `1px solid ${GRAY.border}`, marginBottom: '1rem' }} />
+                </>
+              )}
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {/* Use the user's own photo (always available) */}
-                <button type="button" disabled={!!photoLoading} onClick={() => handlePhotoUpload(false, true)} style={{ ...btn('#374151', !!photoLoading), width: '100%' }}>
-                  {photoLoading === 'asis' ? 'Saving…' : (aiGenerated ? '↑ Use My Original Photo Instead' : '↑ Upload As-Is')}
-                </button>
+                {/* Save the currently-previewed AI image */}
+                {aiPreviewUrl && (
+                  <button type="button" disabled={!!photoBusy} onClick={() => commitPhoto('ai')} style={{ ...btn(NSSA.dark, !!photoBusy), width: '100%' }}>
+                    {photoBusy === 'committing' ? 'Saving…' : '✓ Use This Photo'}
+                  </button>
+                )}
 
-                {/* AI generation — capped at AI_GEN_LIMIT per session */}
+                {/* Generate / regenerate an AI version (capped) */}
                 {!aiLimitReached && (
-                  <button type="button" disabled={!!photoLoading} onClick={() => handlePhotoUpload(true)} style={{ ...btn(NSSA.dark, !!photoLoading), width: '100%' }}>
-                    {photoLoading === 'ai'
+                  <button type="button" disabled={!!photoBusy} onClick={generatePreview} style={{ ...btn(aiPreviewUrl ? NSSA.medium : NSSA.dark, !!photoBusy), width: '100%' }}>
+                    {photoBusy === 'generating'
                       ? 'Generating…'
                       : aiGenCount === 0
                         ? '✦ Enhance with AI'
-                        : `✦ Try a Different AI Version (${aiGenCount} of ${AI_GEN_LIMIT} used)`}
+                        : `✦ Regenerate (${aiGenCount} of ${AI_GEN_LIMIT} used)`}
                   </button>
                 )}
-              </div>
 
-              {aiGenerated && (
-                <div style={{ marginTop: '10px', padding: '8px 12px', background: '#eff6ff', border: `1px solid ${NSSA.light}`, borderRadius: '6px', fontSize: '12px', color: NSSA.dark, lineHeight: 1.5 }}>
-                  Your AI version is currently saved and shown above. Keep it as-is, try a different AI version, or switch back to your original photo.
-                </div>
-              )}
+                {/* Use the user's own photo as-is */}
+                <button type="button" disabled={!!photoBusy} onClick={() => commitPhoto('original')} style={{ ...btn('#374151', !!photoBusy), width: '100%' }}>
+                  {photoBusy === 'committing' ? 'Saving…' : '↑ Use My Original Photo'}
+                </button>
+              </div>
 
               {!aiLimitReached ? (
                 <p style={{ fontSize: '11px', color: GRAY.text, marginTop: '8px', lineHeight: 1.4 }}>
-                  <strong>Enhance with AI</strong> creates a polished professional headshot — new background and attire, with only light, natural touch-ups to your face. Each version is different.
+                  <strong>Enhance with AI</strong> creates a polished professional headshot — new background and attire, with only light, natural touch-ups to your face. Nothing is saved until you choose <strong>Use This Photo</strong>.
                 </p>
               ) : (
                 <div style={{ marginTop: '10px', padding: '10px 12px', background: GRAY.bg, border: `1px solid ${GRAY.border}`, borderRadius: '6px', fontSize: '12px', color: GRAY.text, lineHeight: 1.5 }}>
-                  You’ve used all {AI_GEN_LIMIT} AI attempts for this session. Keep the most recent AI version, or use your original photo with the button above.
+                  You’ve used all {AI_GEN_LIMIT} AI attempts for this session. Choose <strong>Use This Photo</strong> to keep the current AI version, or <strong>Use My Original Photo</strong>.
                 </div>
               )}
             </div>
