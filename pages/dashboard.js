@@ -532,7 +532,7 @@ export default function Dashboard({ member, subs, selectedYear, availableYears, 
         </div>
 
         {/* ── Member Profile (inline editable) ─────────────────────────────── */}
-        <div>
+        <div id="profile" style={{ scrollMarginTop: '1rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
             <h2 style={{ fontSize: '11px', fontWeight: 600, color: GRAY.text, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
               Member Profile
