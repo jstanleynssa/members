@@ -196,12 +196,34 @@ function SimpleEdit({ member, userEmail }) {
     // regardless of how many times a new photo is chosen.
   }
 
-  // Reads the currently selected file as base64 (re-read each call so "Try
-  // Again" can re-run AI on the same original).
-  function fileToBase64(file) {
+  // Downscale + compress the selected image in the browser before upload.
+  // Caps the long edge at MAX_EDGE and re-encodes as JPEG, so the base64 POST
+  // body stays well under the API route limit regardless of original size.
+  // Returns base64 (no data: prefix). Re-reads selectedFile each call so
+  // "Try Again" can re-run on the same original.
+  const MAX_EDGE = 1200
+  function fileToResizedBase64(file) {
     return new Promise((resolve, reject) => {
       const reader = new FileReader()
-      reader.onload = e => resolve(e.target.result.split(',')[1])
+      reader.onload = e => {
+        const img = new Image()
+        img.onload = () => {
+          let { width, height } = img
+          if (width > MAX_EDGE || height > MAX_EDGE) {
+            if (width >= height) { height = Math.round(height * (MAX_EDGE / width)); width = MAX_EDGE }
+            else { width = Math.round(width * (MAX_EDGE / height)); height = MAX_EDGE }
+          }
+          const canvas = document.createElement('canvas')
+          canvas.width = width; canvas.height = height
+          const ctx = canvas.getContext('2d')
+          ctx.drawImage(img, 0, 0, width, height)
+          // 0.85 quality JPEG — small but visually clean for a headshot.
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.85)
+          resolve(dataUrl.split(',')[1])
+        }
+        img.onerror = reject
+        img.src = e.target.result
+      }
       reader.onerror = reject
       reader.readAsDataURL(file)
     })
@@ -217,14 +239,14 @@ function SimpleEdit({ member, userEmail }) {
     setPhotoError(null)
     setPhotoSuccess(null)
     try {
-      const base64 = await fileToBase64(selectedFile)
+      const base64 = await fileToResizedBase64(selectedFile)
       const res = await fetch('/api/save-profile-photo', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           email: userEmail,
           imageData: base64,
-          mimeType: selectedFile.type || 'image/jpeg',
+          mimeType: 'image/jpeg', // always JPEG after client-side re-encode
           enhance,
           saveOriginal,
           attempt: aiGenCount, // 0,1,2 → rotates attire/background per attempt
