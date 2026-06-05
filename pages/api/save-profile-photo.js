@@ -9,15 +9,18 @@ export const config = {
   },
 }
 
-// Base instruction — emphasizes a LIGHT touch on the face (keep the person
-// looking like themselves; only ~5-8% retouching), while still producing a
-// polished professional headshot with a generated background and attire.
-const HEADSHOT_BASE = `Convert the uploaded photo into a professional executive headshot suitable for LinkedIn profiles, corporate websites, speaker biographies, advisor directories, and professional marketing materials.
-CRITICAL — preserve the person's exact identity: keep their real facial features, face shape, age, ethnicity, hairstyle, skin tone, and natural expression. This must clearly look like the same person. Apply only very light, natural retouching to the FACE — roughly 5-8%: gently even skin tone and softly reduce temporary blemishes and harsh shadows, but KEEP natural skin texture, real wrinkles, pores, and character. Do NOT smooth the face into a plastic or airbrushed look, do not slim or reshape the face, do not change the eyes, nose, mouth, or apparent age.
-Recompose the image into a square (1:1) format. Center the subject naturally with comfortable negative space around the head and shoulders — a professionally photographed corporate portrait, not a tightly cropped selfie. If the original is tightly cropped, intelligently and realistically extend the missing shoulders, clothing, and background with accurate proportions.
-Create professional studio-quality lighting with natural skin tones, sharp focus on the eyes, realistic skin texture, and balanced contrast. Remove image noise, glare, and low-quality artifacts while keeping a natural, authentic appearance.
-Frame subject from mid-chest to top of head, occupying approximately 60-70% of the image height, with 15-20% negative space above the head and balanced side margins.
-Final result: a professionally commissioned corporate headshot captured by an experienced portrait photographer with a high-end camera — photorealistic, authentic, polished, trustworthy, approachable, and unmistakably the same person.`
+// Base instruction — IDENTITY PRESERVATION IS THE PRIMARY GOAL. The face must
+// remain unmistakably the same person; the background/attire restyle is strictly
+// secondary and must never come at the cost of likeness.
+const HEADSHOT_BASE = `Take the uploaded photo of a real person and produce a professional headshot of THAT SAME PERSON. This is a retouch-and-restyle of an existing photo, NOT the creation of a new person.
+
+ABSOLUTE TOP PRIORITY — preserve this exact person's identity and likeness. The output MUST be immediately recognizable as the same individual to someone who knows them. Keep, without alteration: their exact facial features, face shape and jawline, bone structure, the precise shape and spacing of the eyes, nose, and mouth, their eyebrows, their real hairstyle and hair color, their skin tone, their apparent age, their ethnicity, their body build and weight, and their natural expression. Do NOT make them look older or younger, heavier or thinner, or like a different person. Do NOT generate a generic or idealized face. If you cannot preserve the likeness, keep the face as close to the original as possible rather than inventing features.
+
+Apply only very light, natural retouching to the FACE — roughly 5-8%: gently even skin tone and softly reduce temporary blemishes and harsh shadows only. KEEP natural skin texture, real wrinkles, pores, and character. No plastic or airbrushed look, no slimming, no reshaping.
+
+Only AFTER preserving the face, restyle the surrounding image: recompose to a square (1:1) professional portrait with comfortable negative space; if the original is tightly cropped, realistically extend the shoulders, clothing, and background with accurate proportions. Apply professional studio-quality lighting, natural skin tones, sharp focus on the eyes, and balanced contrast. Remove noise, glare, and artifacts.
+Frame from mid-chest to top of head, occupying ~60-70% of the image height, with 15-20% negative space above the head.
+Final result: a photorealistic, professionally photographed corporate headshot that is UNMISTAKABLY the same person from the uploaded photo.`
 
 // Rotating ATTIRE options — a different one is chosen per attempt so the three
 // generations differ visibly. Still always professional business attire.
@@ -46,7 +49,7 @@ ${attire}
 ${background} Keep the background softly blurred so it never distracts from the subject.`
 }
 
-const HEADSHOT_NEGATIVE = `face swap, altered identity, different person, beauty filter, glamour photography, fashion model pose, cartoon, illustration, painting, anime, plastic skin, airbrushed skin, over-smoothed skin, excessive retouching, distorted facial features, asymmetrical eyes, exaggerated smile, slimmed face, reshaped face, changed age, extreme sharpening, low resolution, pixelation, artifacts, text, watermark, logo, cropped forehead, cropped chin, tight crop, selfie framing, dramatic cinematic lighting, fantasy background`
+const HEADSHOT_NEGATIVE = `different person, face swap, altered identity, generic face, idealized face, new face, changed bone structure, changed jawline, different eyes, different nose, heavier, thinner, slimmer face, fuller face, older, younger, changed age, changed weight, changed build, beauty filter, glamour photography, fashion model, cartoon, illustration, painting, anime, plastic skin, airbrushed skin, over-smoothed skin, excessive retouching, distorted features, asymmetrical eyes, exaggerated smile, extreme sharpening, low resolution, pixelation, artifacts, text, watermark, logo, cropped forehead, cropped chin, tight crop, selfie framing, dramatic cinematic lighting, fantasy background`
 
 function slugify(str) {
   return (str || '').toLowerCase().trim()
@@ -126,7 +129,7 @@ export default async function handler(req, res) {
           negative_prompt: HEADSHOT_NEGATIVE,
           aspect_ratio: '1:1',
           image_size: { width: 676, height: 696 },
-          guidance_scale: 3.5,
+          guidance_scale: 4.5,
           num_inference_steps: 28,
           seed,
           output_format: 'jpeg',
@@ -207,7 +210,7 @@ export default async function handler(req, res) {
           body: JSON.stringify({
             image_url: imageUrl, prompt: buildPrompt(attempt), negative_prompt: HEADSHOT_NEGATIVE,
             aspect_ratio: '1:1', image_size: { width: 676, height: 696 },
-            guidance_scale: 3.5, num_inference_steps: 28, seed: Math.floor(Math.random() * 1e9),
+            guidance_scale: 4.5, num_inference_steps: 28, seed: Math.floor(Math.random() * 1e9),
             output_format: 'jpeg',
           }),
         })
