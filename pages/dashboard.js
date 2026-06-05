@@ -1,6 +1,6 @@
 import { createServerSupabaseClient } from '@supabase/auth-helpers-nextjs'
 import { createClient } from '@supabase/supabase-js'
-import { useState, useRef, useEffect } from 'react'
+import { useState } from 'react'
 import { useRouter } from 'next/router'
 import Link from 'next/link'
 
@@ -123,48 +123,6 @@ function StatusPill({ status, accent, accentBg, accentLight }) {
   )
 }
 
-// ── Inline profile form helpers (ported from /profile/edit) ───────────────
-function Field({ label, name, value, onChange, type = 'text', placeholder, hint, textarea, required, minHeight, tooltip }) {
-  const inputStyle = {
-    width: '100%', padding: '9px 12px', fontSize: '14px',
-    border: `1px solid ${GRAY.border}`, borderRadius: '6px',
-    outline: 'none', boxSizing: 'border-box',
-    fontFamily: 'system-ui, sans-serif', background: 'white',
-    resize: textarea ? 'vertical' : undefined,
-    minHeight: textarea ? (minHeight || '100px') : undefined,
-  }
-  return (
-    <div style={{ marginBottom: '1rem' }}>
-      <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: 500, color: '#374151', marginBottom: '5px' }}>
-        <span>{label}{required && <span style={{ color: IRMAA.medium, marginLeft: 2 }}>*</span>}</span>
-        {tooltip && (
-          <span
-            title={tooltip}
-            style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '15px', height: '15px', borderRadius: '99px', background: GRAY.bg, color: GRAY.text, fontSize: '10px', fontWeight: 700, cursor: 'help', border: `1px solid ${GRAY.border}` }}
-          >
-            ?
-          </span>
-        )}
-      </label>
-      {textarea
-        ? <textarea name={name} value={value || ''} onChange={onChange} placeholder={placeholder} style={inputStyle} />
-        : <input type={type} name={name} value={value || ''} onChange={onChange} placeholder={placeholder} style={inputStyle} />
-      }
-      {hint && <p style={{ fontSize: '11px', color: GRAY.text, marginTop: '4px' }}>{hint}</p>}
-    </div>
-  )
-}
-
-function Section({ title, children }) {
-  return (
-    <div style={{ marginBottom: '2rem' }}>
-      <h3 style={{ fontSize: '13px', fontWeight: 600, color: NSSA.dark, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '1rem', paddingBottom: '6px', borderBottom: `2px solid ${NSSA.light}` }}>
-        {title}
-      </h3>
-      {children}
-    </div>
-  )
-}
 
 export default function Dashboard({ member, subs, selectedYear, availableYears, currentYear, nssaHours, irmaaHours, nssaStatus, irmaaStatus, daysLeft, userEmail }) {
   const router = useRouter()
@@ -173,146 +131,14 @@ export default function Dashboard({ member, subs, selectedYear, availableYears, 
   const filteredSubs = subs.filter(s => s.year === yearFilter)
   const isAdmin = userEmail === 'jstanley@nssapros.com'
 
-  // ── Profile form state (seeded from SSR member props) ───────────────────
-  const [form, setForm] = useState({
-    first_name:           member.first_name           || '',
-    last_name:            member.last_name            || '',
-    job_title:            member.job_title            || '',
-    company:              member.company              || '',
-    address:              member.address              || '',
-    city:                 member.city                 || '',
-    state:                member.state                || '',
-    zip:                  member.zip                  || '',
-    phone:                member.phone                || '',
-    mobile_phone:         member.mobile_phone         || '',
-    website:              member.website              || '',
-    linkedin_url:         member.linkedin_url         || '',
-    bio:                  stripHtml(member.bio)       || '',
-    financial_disclosure: member.financial_disclosure || '',
-  })
-
-  const [dirty, setDirty]     = useState(false)
-  const [saving, setSaving]   = useState(false)
-  const [saved, setSaved]     = useState(false)
-  const [saveError, setSaveError] = useState(null)
-
-  // ── Photo state ─────────────────────────────────────────────────────────
-  const fileInputRef = useRef(null)
-  const [currentPhoto, setCurrentPhoto] = useState(member.profile_photo || null)
-  const [selectedFile, setSelectedFile] = useState(null)
-  const [photoPreview, setPhotoPreview] = useState(null)
-  const [photoLoading, setPhotoLoading] = useState(null) // 'asis' | 'ai' | null
-  const [photoSuccess, setPhotoSuccess] = useState(null)
-  const [photoError, setPhotoError]     = useState(null)
-
-  // ── Unsaved-changes guard ────────────────────────────────────────────────
-  // Browser/tab close + hard reload
-  useEffect(() => {
-    function handleBeforeUnload(e) {
-      if (!dirty) return
-      e.preventDefault()
-      e.returnValue = ''
-      return ''
-    }
-    window.addEventListener('beforeunload', handleBeforeUnload)
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
-  }, [dirty])
-
-  // In-app Next.js navigation (Dashboard link, Admin link, etc.)
-  useEffect(() => {
-    function handleRouteChange() {
-      if (!dirty) return
-      if (!window.confirm('You have unsaved profile changes. Leave anyway?')) {
-        router.events.emit('routeChangeError')
-        // Abort the route change
-        throw 'routeChange aborted by unsaved-changes guard'
-      }
-    }
-    router.events.on('routeChangeStart', handleRouteChange)
-    return () => router.events.off('routeChangeStart', handleRouteChange)
-  }, [dirty, router.events])
-
-  function handleChange(e) {
-    const { name, value } = e.target
-    setForm(f => ({ ...f, [name]: value }))
-    setDirty(true)
-    setSaved(false)
-  }
-
-  function handleFileSelect(e) {
-    const file = e.target.files[0]
-    if (!file) return
-    setSelectedFile(file)
-    setPhotoSuccess(null)
-    setPhotoError(null)
-    const reader = new FileReader()
-    reader.onload = ev => setPhotoPreview(ev.target.result)
-    reader.readAsDataURL(file)
-  }
-
-  async function handlePhotoUpload(enhance) {
-    if (!selectedFile) return
-    setPhotoLoading(enhance ? 'ai' : 'asis')
-    setPhotoError(null)
-    setPhotoSuccess(null)
-
-    try {
-      const base64 = await new Promise((resolve, reject) => {
-        const reader = new FileReader()
-        reader.onload = e => resolve(e.target.result.split(',')[1])
-        reader.onerror = reject
-        reader.readAsDataURL(selectedFile)
-      })
-
-      const res = await fetch('/api/save-profile-photo', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: userEmail,
-          imageData: base64,
-          mimeType: selectedFile.type || 'image/jpeg',
-          enhance
-        })
-      })
-
-      const data = await res.json()
-      if (!res.ok || !data.ok) throw new Error(data.error || 'Upload failed')
-
-      setCurrentPhoto(data.profile_photo + '?t=' + Date.now())
-      setSelectedFile(null)
-      setPhotoPreview(null)
-      setPhotoSuccess(enhance ? 'AI-enhanced photo saved!' : 'Photo saved!')
-      if (fileInputRef.current) fileInputRef.current.value = ''
-    } catch (err) {
-      setPhotoError(err.message)
-    } finally {
-      setPhotoLoading(null)
-    }
-  }
-
-  async function handleSave(e) {
-    e.preventDefault()
-    setSaving(true)
-    setSaved(false)
-    setSaveError(null)
-
-    try {
-      const res = await fetch('/api/save', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form)
-      })
-      const data = await res.json()
-      if (!res.ok || !data.ok) throw new Error(data.error || 'Save failed')
-      setDirty(false)
-      setSaved(true)
-      setTimeout(() => setSaved(false), 4000)
-    } catch (err) {
-      setSaveError(err.message)
-    } finally {
-      setSaving(false)
-    }
-  }
+  // ── Profile summary (read-only) ─────────────────────────────────────────
+  // Editing happens at /profile (the canonical editor). The dashboard only
+  // displays a summary, so we just derive what we need to show.
+  const currentPhoto = member.profile_photo || null
+  const bioText = stripHtml(member.bio)
+  // A member "has a profile" once they've added a bio (the directory inclusion
+  // signal). Anyone without one sees the "build your profile" prompt instead.
+  const hasProfile = !!(bioText && bioText.trim())
 
   function statusColor(s) {
     if (s === 'approved') return { bg: NSSA_BG, color: NSSA.medium, border: NSSA.light }
@@ -531,7 +357,12 @@ export default function Dashboard({ member, subs, selectedYear, availableYears, 
           </div>
         </div>
 
-        {/* ── Member Profile (inline editable) ─────────────────────────────── */}
+        {/* ── Member Profile (read-only summary) ───────────────────────────
+            Editing lives in the canonical profile editor at /profile (the
+            build-out wizard + Simple Edit, with the upgraded photo flow and
+            likeness-safety check). The dashboard shows a summary only, with a
+            single CTA to that editor — so there is ONE place to edit a profile
+            and no risk of two forms drifting apart. */}
         <div id="profile" style={{ scrollMarginTop: '1rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
             <h2 style={{ fontSize: '11px', fontWeight: 600, color: GRAY.text, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
@@ -553,177 +384,77 @@ export default function Dashboard({ member, subs, selectedYear, availableYears, 
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 300px', gap: '1.5rem', alignItems: 'start' }}>
-
-            {/* LEFT: editable form */}
-            <form onSubmit={handleSave}>
-              <div style={{ background: 'white', borderRadius: '10px', border: `1px solid ${GRAY.border}`, padding: '1.5rem' }}>
-
-                <Section title="Name & Role">
-                  <div style={twoCol}>
-                    <Field label="First Name"  name="first_name"  value={form.first_name}  onChange={handleChange} required />
-                    <Field label="Last Name"   name="last_name"   value={form.last_name}   onChange={handleChange} required />
-                  </div>
-                  <div style={twoCol}>
-                    <Field label="Job Title"   name="job_title"   value={form.job_title}   onChange={handleChange} placeholder="Financial Advisor" />
-                    <Field label="Company"     name="company"     value={form.company}     onChange={handleChange} placeholder="ABC Wealth Management" />
-                  </div>
-                </Section>
-
-                <Section title="Location">
-                  <Field label="Street Address" name="address" value={form.address} onChange={handleChange} placeholder="123 Main St" />
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px 100px', gap: '0 1rem' }}>
-                    <Field label="City"  name="city"  value={form.city}  onChange={handleChange} />
-                    <Field label="State" name="state" value={form.state} onChange={handleChange} placeholder="TX" />
-                    <Field label="Zip"   name="zip"   value={form.zip}   onChange={handleChange} placeholder="75001" />
-                  </div>
-                </Section>
-
-                <Section title="Contact">
-                  <div style={twoCol}>
-                    <Field label="Office Phone" name="phone"        value={form.phone}        onChange={handleChange} placeholder="(555) 555-5555" type="tel" />
-                    <Field label="Mobile Phone" name="mobile_phone" value={form.mobile_phone} onChange={handleChange} placeholder="(555) 555-5555" type="tel" />
-                  </div>
-                  <div style={twoCol}>
-                    <Field label="Website"  name="website"      value={form.website}      onChange={handleChange} placeholder="https://yoursite.com" type="url" />
-                    <Field
-                      label="LinkedIn" name="linkedin_url" value={form.linkedin_url} onChange={handleChange}
-                      placeholder="https://linkedin.com/in/yourname" type="url"
-                      tooltip="On LinkedIn, open your profile, click 'Contact info' (under your headline), then copy the Profile URL — it looks like linkedin.com/in/yourname. On mobile, tap the share icon on your profile and choose 'Copy link to profile.'"
-                      hint="Paste the full URL to your LinkedIn profile."
-                    />
-                  </div>
-                </Section>
-
-                <Section title="Professional Bio">
-                  <Field
-                    label="Bio" name="bio" value={form.bio} onChange={handleChange} textarea minHeight="220px"
-                    placeholder="Tell clients about your background, experience, and approach..."
-                    hint="This bio will be displayed on your public directory listing."
-                  />
-                </Section>
-
-                <Section title="Financial Disclosure">
-                  <Field
-                    label="Disclosure" name="financial_disclosure" value={form.financial_disclosure}
-                    onChange={handleChange} textarea
-                    placeholder="e.g. Securities offered through XYZ Member FINRA/SIPC..."
-                    hint="Optional. Displayed at the bottom of your directory profile."
-                  />
-                </Section>
-
-                {/* Save bar */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', paddingTop: '1rem', borderTop: `1px solid ${GRAY.bg}` }}>
-                  <button type="submit" disabled={saving} style={btn(NSSA.dark, saving)}>
-                    {saving ? 'Saving…' : 'Save Profile'}
-                  </button>
-                  {dirty && !saving && !saved && (
-                    <span style={{ fontSize: '12px', color: GRAY.text }}>Unsaved changes</span>
-                  )}
-                  {saved && (
-                    <span style={{ fontSize: '13px', color: SUCCESS.text, background: SUCCESS.bg, border: `1px solid ${SUCCESS.border}`, padding: '6px 12px', borderRadius: '6px' }}>
-                      ✓ Profile saved
-                    </span>
-                  )}
-                  {saveError && (
-                    <span style={{ fontSize: '13px', color: ALERT.text }}>{saveError}</span>
-                  )}
-                </div>
-              </div>
-            </form>
-
-            {/* RIGHT: photo panel (sticky) */}
-            <div style={{ position: 'sticky', top: '2rem' }}>
-              <div style={{ background: 'white', borderRadius: '10px', border: `1px solid ${GRAY.border}`, padding: '1.5rem' }}>
-                <h3 style={{ fontSize: '13px', fontWeight: 600, color: NSSA.dark, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '1.25rem', paddingBottom: '6px', borderBottom: `2px solid ${NSSA.light}` }}>
-                  Profile Photo
-                </h3>
-
-                {/* Current photo */}
-                <div style={{ marginBottom: '1.25rem', textAlign: 'center' }}>
-                  {currentPhoto ? (
+          <div style={{ background: 'white', borderRadius: '10px', border: `1px solid ${GRAY.border}`, padding: '1.5rem' }}>
+            {hasProfile ? (
+              <>
+                {/* Summary: photo + key details */}
+                <div style={{ display: 'grid', gridTemplateColumns: currentPhoto ? '120px 1fr' : '1fr', gap: '1.5rem', alignItems: 'start' }}>
+                  {currentPhoto && (
                     <img
                       src={currentPhoto}
-                      alt="Profile photo"
-                      style={{ width: '180px', height: '185px', objectFit: 'cover', objectPosition: 'top', borderRadius: '8px', border: `1px solid ${GRAY.border}` }}
+                      alt="Your profile photo"
+                      style={{ width: '120px', height: '124px', objectFit: 'cover', objectPosition: 'top', borderRadius: '8px', border: `1px solid ${GRAY.border}` }}
                     />
-                  ) : (
-                    <div style={{ width: '180px', height: '185px', background: GRAY.bg, borderRadius: '8px', border: `1px solid ${GRAY.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto', color: GRAY.text, fontSize: '13px' }}>
-                      No photo yet
-                    </div>
                   )}
+                  <div style={{ fontSize: '14px', color: '#374151', lineHeight: 1.8 }}>
+                    <div style={{ fontSize: '17px', fontWeight: 700, color: '#111', marginBottom: '2px' }}>
+                      {[member.first_name, member.last_name].filter(Boolean).join(' ') || '—'}
+                    </div>
+                    {(member.job_title || member.company) && (
+                      <div style={{ color: GRAY.text }}>{[member.job_title, member.company].filter(Boolean).join(', ')}</div>
+                    )}
+                    {(member.city || member.state) && (
+                      <div style={{ color: GRAY.text }}>{[member.city, member.state].filter(Boolean).join(', ')}{member.zip ? ` ${member.zip}` : ''}</div>
+                    )}
+                    {(member.phone || member.mobile_phone) && <div style={{ color: GRAY.text }}>{member.phone || member.mobile_phone}</div>}
+                    {member.website && <div style={{ color: NSSA.medium }}>{member.website.replace(/^https?:\/\//, '')}</div>}
+
+                    {/* Completeness nudges */}
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '12px' }}>
+                      {!currentPhoto && (
+                        <span style={{ fontSize: '11px', padding: '3px 10px', borderRadius: '99px', background: IRMAA_BG, color: IRMAA.medium, border: `1px solid ${IRMAA.light}` }}>
+                          Add a headshot — profiles with photos get noticeably more inquiries
+                        </span>
+                      )}
+                      {!bioText && (
+                        <span style={{ fontSize: '11px', padding: '3px 10px', borderRadius: '99px', background: IRMAA_BG, color: IRMAA.medium, border: `1px solid ${IRMAA.light}` }}>
+                          Add a bio to complete your listing
+                        </span>
+                      )}
+                    </div>
+                  </div>
                 </div>
 
-                {/* File picker */}
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp"
-                  onChange={handleFileSelect}
-                  style={{ display: 'none' }}
-                />
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  style={{ ...btn(NSSA.medium, false), width: '100%', marginBottom: '1rem' }}
-                >
-                  {selectedFile ? '↺ Choose Different Photo' : '↑ Choose Photo'}
-                </button>
-
-                {/* Preview + action buttons */}
-                {photoPreview && (
-                  <div>
-                    <p style={{ fontSize: '12px', color: GRAY.text, marginBottom: '8px', textAlign: 'center' }}>Preview</p>
-                    <img
-                      src={photoPreview}
-                      alt="Preview"
-                      style={{ width: '100%', maxHeight: '200px', objectFit: 'cover', objectPosition: 'top', borderRadius: '6px', border: `1px solid ${GRAY.border}`, marginBottom: '1rem' }}
-                    />
-
-                    <p style={{ fontSize: '12px', fontWeight: 500, color: '#374151', marginBottom: '8px' }}>How would you like to upload this?</p>
-
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                      <button
-                        type="button"
-                        disabled={!!photoLoading}
-                        onClick={() => handlePhotoUpload(false)}
-                        style={{ ...btn('#374151', !!photoLoading), width: '100%' }}
-                      >
-                        {photoLoading === 'asis' ? 'Uploading…' : '↑ Upload As-Is'}
-                      </button>
-                      <button
-                        type="button"
-                        disabled={!!photoLoading}
-                        onClick={() => handlePhotoUpload(true)}
-                        style={{ ...btn(NSSA.dark, !!photoLoading), width: '100%' }}
-                      >
-                        {photoLoading === 'ai' ? 'Enhancing…' : '✦ Enhance with AI'}
-                      </button>
-                    </div>
-
-                    <p style={{ fontSize: '11px', color: GRAY.text, marginTop: '8px', lineHeight: 1.4 }}>
-                      <strong>Enhance with AI</strong> — upgrades to business attire, improves lighting and composition.
+                {/* Bio preview */}
+                {bioText && (
+                  <div style={{ marginTop: '1.25rem', paddingTop: '1.25rem', borderTop: `1px solid ${GRAY.bg}` }}>
+                    <p style={{ fontSize: '11px', fontWeight: 600, color: GRAY.text, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '8px' }}>Bio</p>
+                    <p style={{ fontSize: '13px', color: '#374151', lineHeight: 1.7, margin: 0, display: '-webkit-box', WebkitLineClamp: 4, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                      {bioText}
                     </p>
                   </div>
                 )}
 
-                {photoSuccess && (
-                  <div style={{ marginTop: '10px', padding: '8px 12px', background: SUCCESS.bg, border: `1px solid ${SUCCESS.border}`, borderRadius: '6px', fontSize: '13px', color: SUCCESS.text }}>
-                    ✓ {photoSuccess}
-                  </div>
-                )}
-                {photoError && (
-                  <div style={{ marginTop: '10px', padding: '8px 12px', background: ALERT.bg, border: `1px solid ${ALERT.border}`, borderRadius: '6px', fontSize: '13px', color: ALERT.text }}>
-                    {photoError}
-                  </div>
-                )}
-
-                <p style={{ fontSize: '11px', color: GRAY.text, marginTop: '12px', lineHeight: 1.5 }}>
-                  Accepted formats: JPG, PNG, WebP. Best results with a clear photo of your face.
+                {/* Edit CTA */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '1.5rem', paddingTop: '1.25rem', borderTop: `1px solid ${GRAY.bg}` }}>
+                  <Link href="/profile" style={{ ...btn(NSSA.dark, false), textDecoration: 'none', display: 'inline-block' }}>
+                    Edit Your Profile
+                  </Link>
+                  <span style={{ fontSize: '12px', color: GRAY.text }}>Update your photo, bio, or contact details — changes appear on the directory automatically.</span>
+                </div>
+              </>
+            ) : (
+              /* No profile yet — encourage them into the build-out wizard */
+              <div style={{ textAlign: 'center', padding: '1.5rem 1rem' }}>
+                <p style={{ fontSize: '15px', fontWeight: 600, color: '#111', marginBottom: '6px' }}>You don't have a directory profile yet</p>
+                <p style={{ fontSize: '13px', color: GRAY.text, maxWidth: '440px', margin: '0 auto 1.25rem', lineHeight: 1.6 }}>
+                  Your profile is how clients searching the NSSA® Advisor Directory find and contact you. It takes just a few minutes to build.
                 </p>
+                <Link href="/profile" style={{ ...btn(NSSA.dark, false), textDecoration: 'none', display: 'inline-block' }}>
+                  Build Your Profile
+                </Link>
               </div>
-            </div>
-
+            )}
           </div>
         </div>
 
