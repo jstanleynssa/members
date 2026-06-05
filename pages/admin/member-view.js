@@ -152,7 +152,7 @@ export default function MemberView({ member: initialMember, subs, viewEmail, sel
   async function handleSave() {
     setSaving(true); setSaveMsg(null)
     try {
-      const res  = await fetch('/api/admin/save-member', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: viewEmail, ...form }) })
+      const res  = await fetch('/api/save-member', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: viewEmail, ...form }) })
       const data = await res.json()
       if (!res.ok || !data.ok) throw new Error(data.error || 'Save failed')
       setMember(m => ({ ...m, ...form }))
