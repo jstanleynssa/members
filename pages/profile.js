@@ -15,7 +15,7 @@
 
 import { createServerSupabaseClient } from '@supabase/auth-helpers-nextjs'
 import { createClient } from '@supabase/supabase-js'
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef } from 'react'
 import Link from 'next/link'
 
 const NSSA  = { dark: '#13405E', medium: '#1C80BC', light: '#8ECAEE' }
@@ -584,15 +584,9 @@ function BuildWizard({ member, userEmail, certLabel }) {
     linkedin_url:         member.linkedin_url         || '',
     bio:                  htmlBioToText(member.bio),
     financial_disclosure: member.financial_disclosure || '',
-    directory_h1:         member.directory_h1          || '',
-    directory_page_title: member.directory_page_title  || '',
-    meta_description:     member.meta_description       || '',
   })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
-  // SEO auto-generation (silent, on reaching the Review step). seoState tracks
-  // so we generate at most once per session unless inputs change.
-  const [seoState, setSeoState] = useState('idle') // 'idle' | 'generating' | 'done' | 'error'
 
   // Bio-generation inputs — transient (NOT member columns, so not persisted by
   // /api/save). They only feed the bio generator. The generated text lands in
@@ -749,43 +743,6 @@ function BuildWizard({ member, userEmail, certLabel }) {
     }
   }
 
-  // Silently generate SEO metadata (h1, page title, meta description) once the
-  // advisor reaches the Review step. Behind the scenes — no UI. Generated values
-  // land in `form`, so they save with everything else on Finish. Fire-and-forget:
-  // if it fails, finishing still works (the directory has sensible fallbacks).
-  useEffect(() => {
-    if (step !== 5 || seoState !== 'idle') return
-    setSeoState('generating')
-    ;(async () => {
-      try {
-        const res = await fetch('/api/generate-seo', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            first_name: form.first_name, last_name: form.last_name,
-            job_title: form.job_title, company: form.company,
-            city: form.city, state: form.state, bio: form.bio,
-            nssa_certified: member.nssa_certified, irmaa_certified: member.irmaa_certified,
-          }),
-        })
-        const data = await res.json()
-        if (res.ok && data.ok) {
-          setForm(f => ({
-            ...f,
-            directory_h1:         data.directory_h1         || f.directory_h1,
-            directory_page_title: data.directory_page_title || f.directory_page_title,
-            meta_description:     data.meta_description      || f.meta_description,
-          }))
-          setSeoState('done')
-        } else {
-          setSeoState('error') // non-fatal; finish still works
-        }
-      } catch {
-        setSeoState('error')
-      }
-    })()
-  }, [step, seoState]) // eslint-disable-line react-hooks/exhaustive-deps
-
   const card = { background: 'white', borderRadius: '10px', border: `1px solid ${GRAY.border}`, padding: '2rem' }
   const twoCol = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 1rem' }
   const btnP = (disabled) => ({ padding: '11px 26px', fontSize: '14px', fontWeight: 600, background: disabled ? GRAY.bg : NSSA.dark, color: disabled ? GRAY.text : 'white', border: 'none', borderRadius: '6px', cursor: disabled ? 'not-allowed' : 'pointer' })
@@ -932,11 +889,6 @@ function BuildWizard({ member, userEmail, certLabel }) {
             <div><strong>Photo:</strong> {currentPhoto ? 'Added ✓' : 'Not added'}</div>
             <div><strong>Bio:</strong> {(form.bio || '').trim() ? `${(form.bio || '').trim().length} characters` : 'Not written yet'}</div>
           </div>
-          <p style={{ fontSize: '12px', color: GRAY.text, marginTop: '1.25rem', fontStyle: 'italic' }}>
-            {seoState === 'generating' && 'Optimizing your listing for search…'}
-            {seoState === 'done' && 'Your listing is optimized for search ✓'}
-            {seoState === 'error' && 'We’ll finish optimizing your listing during review.'}
-          </p>
         </div>
       )}
 
