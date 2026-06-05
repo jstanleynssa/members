@@ -538,7 +538,7 @@ export default function Dashboard({ member, subs, selectedYear, availableYears, 
               Member Profile
             </h2>
 
-       {/* Cert badges (read-only) — show the certification number prominently */}
+            {/* Cert badges (read-only) — certification number shown prominently */}
             <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
               {member.nssa_certified && (
                 <span style={{ fontSize: '11px', padding: '3px 10px', borderRadius: '4px', background: NSSA_BG, color: NSSA.medium, border: `1px solid ${NSSA.light}` }}>
@@ -551,6 +551,7 @@ export default function Dashboard({ member, subs, selectedYear, availableYears, 
                 </span>
               )}
             </div>
+          </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 300px', gap: '1.5rem', alignItems: 'start' }}>
 
