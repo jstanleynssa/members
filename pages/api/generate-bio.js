@@ -22,14 +22,20 @@ export default async function handler(req, res) {
   const {
     first_name = '', last_name = '', job_title = '', company = '',
     city = '', state = '',
-    talking_points = '',   // the freeform "about you" box
-    years_experience = '', // optional
-    specialty = '',        // optional
+    years_experience = '',
+    who_you_help = '',
+    focus_areas = '',
+    whats_different = '',
+    personal_touch = '',
+    extra_credentials = '',
+    talking_points = '',
   } = req.body
 
   const name = `${first_name} ${last_name}`.trim()
-  if (!talking_points.trim() && !specialty.trim() && !years_experience.trim()) {
-    return res.status(400).json({ error: 'Please add a few details about yourself first.' })
+  const anyInput = [years_experience, who_you_help, focus_areas, whats_different, personal_touch, extra_credentials, talking_points]
+    .some(v => v && v.trim())
+  if (!anyInput) {
+    return res.status(400).json({ error: 'Please answer a few of the questions first.' })
   }
 
   // ── Prompt — ports the proven Zapier "Create Profile Summary" prompt ──────
@@ -41,8 +47,12 @@ export default async function handler(req, res) {
     job_title && `Job title: ${job_title}`,
     company && `Company: ${company}`,
     locationPhrase && `Location: ${locationPhrase}`,
-    years_experience && `Years of experience: ${years_experience}`,
-    specialty && `Areas of specialty/focus: ${specialty}`,
+    years_experience && `Years in the business: ${years_experience}`,
+    who_you_help && `Who they primarily help: ${who_you_help}`,
+    focus_areas && `Main focus areas: ${focus_areas}`,
+    extra_credentials && `Other credentials/designations: ${extra_credentials}`,
+    whats_different && `What makes their approach different: ${whats_different}`,
+    personal_touch && `Personal touch (family/hometown/hobbies): ${personal_touch}`,
   ].filter(Boolean).join('\n')
 
   const seoTarget = [
@@ -65,8 +75,8 @@ export default async function handler(req, res) {
 Facts about the advisor:
 ${facts}
 
-In the advisor's own words (talking points — professional history, approach, and personal facts such as hobbies or family; not polished, your job is to shape it):
-${talking_points || '(none provided — work from the facts above)'}
+In the advisor's own words (any additional notes — may be empty):
+${talking_points || '(none — work from the facts above)'}
 
 Requirements:
 - Optimize the summary to be found by people searching for "${seoTarget}".
