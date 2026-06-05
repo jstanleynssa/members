@@ -197,6 +197,183 @@ function StateSelect({ value, onChange }) {
   )
 }
 
+// ── Shared photo panel ─────────────────────────────────────────────────────
+// Self-contained upload → preview → choose → commit flow, used by BOTH the
+// Simple Edit sidebar and the wizard's photo step (single source of truth, so
+// the two can't drift). `variant` tweaks the framing for the two contexts.
+//   onPhotoSaved(url): optional callback fired after a successful commit.
+function PhotoPanel({ userEmail, initialPhoto = null, onPhotoSaved, variant = 'sidebar' }) {
+  const fileInputRef = useRef(null)
+  const [currentPhoto, setCurrentPhoto] = useState(initialPhoto)
+  const [selectedFile, setSelectedFile] = useState(null)
+  const [photoPreview, setPhotoPreview] = useState(null)
+  const [aiPreviewUrl, setAiPreviewUrl] = useState(null)
+  const [photoBusy, setPhotoBusy]       = useState(null) // 'generating' | 'committing' | null
+  const [photoSuccess, setPhotoSuccess] = useState(null)
+  const [photoError, setPhotoError]     = useState(null)
+  const [aiGenCount, setAiGenCount]     = useState(0)
+  const AI_GEN_LIMIT = 3
+  const aiLimitReached = aiGenCount >= AI_GEN_LIMIT
+
+  const btn = (color, disabled) => ({
+    padding: '9px 20px', fontSize: '13px', fontWeight: 600,
+    background: disabled ? GRAY.bg : color, color: disabled ? GRAY.text : 'white',
+    border: 'none', borderRadius: '6px', cursor: disabled ? 'not-allowed' : 'pointer',
+  })
+
+  function handleFileSelect(e) {
+    const file = e.target.files[0]
+    if (!file) return
+    if (file.size > 8 * 1024 * 1024) {
+      setPhotoError('Please choose an image under 8 MB.')
+      if (fileInputRef.current) fileInputRef.current.value = ''
+      return
+    }
+    setSelectedFile(file)
+    setAiPreviewUrl(null)
+    setPhotoSuccess(null)
+    setPhotoError(null)
+    const reader = new FileReader()
+    reader.onload = ev => setPhotoPreview(ev.target.result)
+    reader.readAsDataURL(file)
+  }
+
+  async function generatePreview() {
+    if (!selectedFile || aiLimitReached || photoBusy) return
+    setPhotoBusy('generating'); setPhotoError(null); setPhotoSuccess(null)
+    try {
+      const base64 = await fileToResizedBase64(selectedFile)
+      const res = await fetch('/api/save-profile-photo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: userEmail, imageData: base64, mimeType: 'image/jpeg', mode: 'preview', attempt: aiGenCount }),
+      })
+      const data = await res.json()
+      if (!res.ok || !data.ok) throw new Error(data.error || 'Generation failed')
+      setAiPreviewUrl(data.previewUrl + '?t=' + Date.now())
+      setAiGenCount(c => c + 1)
+    } catch (err) {
+      setPhotoError(err.message)
+    } finally {
+      setPhotoBusy(null)
+    }
+  }
+
+  async function commitPhoto(which) {
+    if (photoBusy) return
+    if (which === 'ai' && !aiPreviewUrl) return
+    if (which === 'original' && !selectedFile) return
+    setPhotoBusy('committing'); setPhotoError(null); setPhotoSuccess(null)
+    try {
+      const body = { email: userEmail, mode: 'commit' }
+      if (which === 'ai') {
+        body.previewUrl = aiPreviewUrl.split('?')[0]
+      } else {
+        body.imageData = await fileToResizedBase64(selectedFile)
+        body.mimeType = 'image/jpeg'
+        body.saveOriginal = true
+      }
+      const res = await fetch('/api/save-profile-photo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      const data = await res.json()
+      if (!res.ok || !data.ok) throw new Error(data.error || 'Save failed')
+      const saved = data.profile_photo + '?t=' + Date.now()
+      setCurrentPhoto(saved)
+      setPhotoSuccess(which === 'ai' ? 'Your AI headshot has been saved.' : 'Your photo has been saved.')
+      setSelectedFile(null); setPhotoPreview(null); setAiPreviewUrl(null)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+      if (onPhotoSaved) onPhotoSaved(data.profile_photo)
+    } catch (err) {
+      setPhotoError(err.message)
+    } finally {
+      setPhotoBusy(null)
+    }
+  }
+
+  // The resting photo display differs slightly by context.
+  const restingPhoto = variant === 'sidebar'
+    ? { w: '180px', h: '185px' }
+    : { w: '160px', h: '160px' }
+
+  return (
+    <div>
+      <div style={{ marginBottom: '1.25rem', textAlign: 'center' }}>
+        {currentPhoto
+          ? <img src={currentPhoto} alt="Profile photo" style={{ width: restingPhoto.w, height: restingPhoto.h, objectFit: 'cover', objectPosition: 'top', borderRadius: '8px', border: `1px solid ${GRAY.border}` }} />
+          : <div style={{ width: restingPhoto.w, height: restingPhoto.h, background: GRAY.bg, borderRadius: '8px', border: `1px solid ${GRAY.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto', color: GRAY.text, fontSize: '13px' }}>No photo yet</div>}
+      </div>
+
+      <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={handleFileSelect} style={{ display: 'none' }} />
+      <button type="button" onClick={() => fileInputRef.current?.click()} style={{ ...btn(NSSA.medium, false), width: '100%', marginBottom: '1rem' }}>
+        {selectedFile ? '↺ Choose Different Photo' : '↑ Choose Photo'}
+      </button>
+
+      {photoPreview && (
+        <div>
+          <p style={{ fontSize: '12px', color: '#374151', fontWeight: 600, marginBottom: '8px', textAlign: 'center' }}>Your uploaded photo</p>
+          <div style={{ width: '100%', aspectRatio: '1 / 1', borderRadius: '6px', overflow: 'hidden', border: `1px solid ${GRAY.border}`, marginBottom: '6px' }}>
+            <img src={photoPreview} alt="Your uploaded photo" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          </div>
+          <button type="button" disabled={!!photoBusy} onClick={() => commitPhoto('original')} style={{ ...btn('#374151', !!photoBusy), width: '100%', marginBottom: '6px' }}>
+            {photoBusy === 'committing' ? 'Saving…' : '↑ Use My Uploaded Photo'}
+          </button>
+          <p style={{ fontSize: '11px', color: GRAY.text, textAlign: 'center', marginBottom: '1.25rem' }}>Shown in the square crop used on your profile.</p>
+
+          {aiPreviewUrl ? (
+            <>
+              <p style={{ fontSize: '12px', color: NSSA.dark, fontWeight: 600, marginBottom: '8px', textAlign: 'center' }}>
+                AI headshot preview {aiGenCount > 1 ? `(version ${aiGenCount})` : ''}
+              </p>
+              <div style={{ width: '100%', aspectRatio: '1 / 1', borderRadius: '6px', overflow: 'hidden', border: `2px solid ${NSSA.light}`, marginBottom: '6px' }}>
+                <img src={aiPreviewUrl} alt="AI headshot preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              </div>
+              <button type="button" disabled={!!photoBusy} onClick={() => commitPhoto('ai')} style={{ ...btn(NSSA.dark, !!photoBusy), width: '100%', marginBottom: '6px' }}>
+                {photoBusy === 'committing' ? 'Saving…' : '✓ Use This AI Photo'}
+              </button>
+              {!aiLimitReached && (
+                <button type="button" disabled={!!photoBusy} onClick={generatePreview} style={{ ...btn(NSSA.medium, !!photoBusy), width: '100%' }}>
+                  {photoBusy === 'generating' ? 'Generating…' : `✦ Regenerate (${aiGenCount} of ${AI_GEN_LIMIT} used)`}
+                </button>
+              )}
+              <p style={{ fontSize: '11px', color: GRAY.text, textAlign: 'center', marginTop: '6px' }}>Not saved yet — choose an option above.</p>
+            </>
+          ) : (
+            !aiLimitReached && (
+              <button type="button" disabled={!!photoBusy} onClick={generatePreview} style={{ ...btn(NSSA.dark, !!photoBusy), width: '100%' }}>
+                {photoBusy === 'generating' ? 'Generating…' : '✦ Enhance with AI'}
+              </button>
+            )
+          )}
+
+          {!aiLimitReached ? (
+            <p style={{ fontSize: '11px', color: GRAY.text, marginTop: '8px', lineHeight: 1.4 }}>
+              <strong>Enhance with AI</strong> creates a polished professional headshot — new background and attire, with only light, natural touch-ups to your face. Nothing is saved until you pick an option.
+            </p>
+          ) : (
+            <div style={{ marginTop: '10px', padding: '10px 12px', background: GRAY.bg, border: `1px solid ${GRAY.border}`, borderRadius: '6px', fontSize: '12px', color: GRAY.text, lineHeight: 1.5 }}>
+              You’ve used all {AI_GEN_LIMIT} AI attempts for this session. Choose <strong>Use This AI Photo</strong> to keep the current AI version, or <strong>Use My Uploaded Photo</strong> above.
+            </div>
+          )}
+        </div>
+      )}
+
+      {photoSuccess && (
+        <div style={{ marginTop: '10px', padding: '8px 12px', background: GREEN.bg, border: `1px solid ${GREEN.border}`, borderRadius: '6px', fontSize: '13px', color: GREEN.text }}>✓ {photoSuccess}</div>
+      )}
+      {photoError && (
+        <div style={{ marginTop: '10px', padding: '8px 12px', background: RED.bg, border: `1px solid ${RED.border}`, borderRadius: '6px', fontSize: '13px', color: RED.text }}>{photoError}</div>
+      )}
+
+      <p style={{ fontSize: '11px', color: GRAY.text, marginTop: '12px', lineHeight: 1.5 }}>
+        Accepted formats: JPG, PNG, WebP. Best results with a clear photo of your face.
+      </p>
+    </div>
+  )
+}
+
 // ── Simple Edit path (returning advisor with an existing bio) ──────────────
 function SimpleEdit({ member, userEmail }) {
   const [form, setForm] = useState({
@@ -221,107 +398,6 @@ function SimpleEdit({ member, userEmail }) {
   const [saved, setSaved]   = useState(false)
   const [saveError, setSaveError] = useState(null)
   const [zipError, setZipError] = useState(null)
-
-  // ── Photo upload state (preview → choose → commit) ────────────────────────
-  const fileInputRef = useRef(null)
-  const [currentPhoto, setCurrentPhoto] = useState(member.profile_photo || null)
-  const [selectedFile, setSelectedFile] = useState(null)
-  const [photoPreview, setPhotoPreview] = useState(null)   // data URL of the chosen ORIGINAL
-  const [aiPreviewUrl, setAiPreviewUrl] = useState(null)   // temp URL of the latest AI result (not yet saved)
-  const [photoBusy, setPhotoBusy]       = useState(null)   // 'generating' | 'committing' | null
-  const [photoSuccess, setPhotoSuccess] = useState(null)
-  const [photoError, setPhotoError]     = useState(null)
-  const [aiGenCount, setAiGenCount]     = useState(0)      // hard cap: 3 per session
-  const AI_GEN_LIMIT = 3
-  const aiLimitReached = aiGenCount >= AI_GEN_LIMIT
-
-  function handleFileSelect(e) {
-    const file = e.target.files[0]
-    if (!file) return
-    if (file.size > 8 * 1024 * 1024) {
-      setPhotoError('Please choose an image under 8 MB.')
-      if (fileInputRef.current) fileInputRef.current.value = ''
-      return
-    }
-    setSelectedFile(file)
-    setAiPreviewUrl(null)      // new photo clears any prior AI preview
-    setPhotoSuccess(null)
-    setPhotoError(null)
-    const reader = new FileReader()
-    reader.onload = ev => setPhotoPreview(ev.target.result)
-    reader.readAsDataURL(file)
-    // aiGenCount is intentionally NOT reset — the cap is per session.
-  }
-
-  // Generate an AI preview (does NOT save). Counts against the per-session cap.
-  async function generatePreview() {
-    if (!selectedFile || aiLimitReached || photoBusy) return
-    setPhotoBusy('generating')
-    setPhotoError(null)
-    setPhotoSuccess(null)
-    try {
-      const base64 = await fileToResizedBase64(selectedFile)
-      const res = await fetch('/api/save-profile-photo', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: userEmail,
-          imageData: base64,
-          mimeType: 'image/jpeg',
-          mode: 'preview',
-          attempt: aiGenCount, // 0,1,2 → rotates attire/background + seed
-        }),
-      })
-      const data = await res.json()
-      if (!res.ok || !data.ok) throw new Error(data.error || 'Generation failed')
-      setAiPreviewUrl(data.previewUrl + '?t=' + Date.now())
-      setAiGenCount(c => c + 1)
-    } catch (err) {
-      setPhotoError(err.message)
-    } finally {
-      setPhotoBusy(null)
-    }
-  }
-
-  // Commit a chosen image as the saved profile photo.
-  //   which = 'ai'       → promote the current AI preview
-  //   which = 'original' → save the user's original photo as-is
-  async function commitPhoto(which) {
-    if (photoBusy) return
-    if (which === 'ai' && !aiPreviewUrl) return
-    if (which === 'original' && !selectedFile) return
-    setPhotoBusy('committing')
-    setPhotoError(null)
-    setPhotoSuccess(null)
-    try {
-      const body = { email: userEmail, mode: 'commit' }
-      if (which === 'ai') {
-        body.previewUrl = aiPreviewUrl.split('?')[0] // strip cache-buster
-      } else {
-        body.imageData = await fileToResizedBase64(selectedFile)
-        body.mimeType = 'image/jpeg'
-        body.saveOriginal = true
-      }
-      const res = await fetch('/api/save-profile-photo', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      })
-      const data = await res.json()
-      if (!res.ok || !data.ok) throw new Error(data.error || 'Save failed')
-      setCurrentPhoto(data.profile_photo + '?t=' + Date.now())
-      setPhotoSuccess(which === 'ai' ? 'Your AI headshot has been saved.' : 'Your photo has been saved.')
-      // Done — clear the working selection so the panel returns to its resting state.
-      setSelectedFile(null)
-      setPhotoPreview(null)
-      setAiPreviewUrl(null)
-      if (fileInputRef.current) fileInputRef.current.value = ''
-    } catch (err) {
-      setPhotoError(err.message)
-    } finally {
-      setPhotoBusy(null)
-    }
-  }
 
   function handleChange(e) {
     const { name, value, type, checked } = e.target
@@ -444,99 +520,13 @@ function SimpleEdit({ member, userEmail }) {
       </div>
     </form>
 
-      {/* ── Photo sidebar (ported from existing editor) ───────────────────── */}
+      {/* ── Photo sidebar (shared PhotoPanel) ─────────────────────────────── */}
       <div style={{ position: 'sticky', top: '2rem' }}>
         <div style={{ background: 'white', borderRadius: '10px', border: `1px solid ${GRAY.border}`, padding: '1.5rem' }}>
           <h3 style={{ fontSize: '13px', fontWeight: 600, color: NSSA.dark, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '1.25rem', paddingBottom: '6px', borderBottom: `2px solid ${NSSA.light}` }}>
             Profile Photo
           </h3>
-
-          <div style={{ marginBottom: '1.25rem', textAlign: 'center' }}>
-            {currentPhoto ? (
-              <img src={currentPhoto} alt="Profile photo" style={{ width: '180px', height: '185px', objectFit: 'cover', objectPosition: 'top', borderRadius: '8px', border: `1px solid ${GRAY.border}` }} />
-            ) : (
-              <div style={{ width: '180px', height: '185px', background: GRAY.bg, borderRadius: '8px', border: `1px solid ${GRAY.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto', color: GRAY.text, fontSize: '13px' }}>
-                No photo yet
-              </div>
-            )}
-          </div>
-
-          <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={handleFileSelect} style={{ display: 'none' }} />
-          <button type="button" onClick={() => fileInputRef.current?.click()} style={{ ...btn(NSSA.medium, false), width: '100%', marginBottom: '1rem' }}>
-            {selectedFile ? '↺ Choose Different Photo' : '↑ Choose Photo'}
-          </button>
-
-          {photoPreview && (
-            <div>
-              {/* ── Option 1: the photo they uploaded, shown in the real square crop ── */}
-              <p style={{ fontSize: '12px', color: '#374151', fontWeight: 600, marginBottom: '8px', textAlign: 'center' }}>
-                Your uploaded photo
-              </p>
-              <div style={{ width: '100%', aspectRatio: '1 / 1', borderRadius: '6px', overflow: 'hidden', border: `1px solid ${GRAY.border}`, marginBottom: '6px' }}>
-                <img src={photoPreview} alt="Your uploaded photo" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-              </div>
-              <button type="button" disabled={!!photoBusy} onClick={() => commitPhoto('original')} style={{ ...btn('#374151', !!photoBusy), width: '100%', marginBottom: '6px' }}>
-                {photoBusy === 'committing' ? 'Saving…' : '↑ Use My Uploaded Photo'}
-              </button>
-              <p style={{ fontSize: '11px', color: GRAY.text, textAlign: 'center', marginBottom: '1.25rem' }}>
-                Shown in the square crop used on your profile.
-              </p>
-
-              {/* ── Option 2: the AI version (preview before saving) ────────────── */}
-              {aiPreviewUrl ? (
-                <>
-                  <p style={{ fontSize: '12px', color: NSSA.dark, fontWeight: 600, marginBottom: '8px', textAlign: 'center' }}>
-                    AI headshot preview {aiGenCount > 1 ? `(version ${aiGenCount})` : ''}
-                  </p>
-                  <div style={{ width: '100%', aspectRatio: '1 / 1', borderRadius: '6px', overflow: 'hidden', border: `2px solid ${NSSA.light}`, marginBottom: '6px' }}>
-                    <img src={aiPreviewUrl} alt="AI headshot preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                  </div>
-                  <button type="button" disabled={!!photoBusy} onClick={() => commitPhoto('ai')} style={{ ...btn(NSSA.dark, !!photoBusy), width: '100%', marginBottom: '6px' }}>
-                    {photoBusy === 'committing' ? 'Saving…' : '✓ Use This AI Photo'}
-                  </button>
-                  {!aiLimitReached && (
-                    <button type="button" disabled={!!photoBusy} onClick={generatePreview} style={{ ...btn(NSSA.medium, !!photoBusy), width: '100%' }}>
-                      {photoBusy === 'generating' ? 'Generating…' : `✦ Regenerate (${aiGenCount} of ${AI_GEN_LIMIT} used)`}
-                    </button>
-                  )}
-                  <p style={{ fontSize: '11px', color: GRAY.text, textAlign: 'center', marginTop: '6px' }}>
-                    Not saved yet — choose an option above.
-                  </p>
-                </>
-              ) : (
-                !aiLimitReached && (
-                  <button type="button" disabled={!!photoBusy} onClick={generatePreview} style={{ ...btn(NSSA.dark, !!photoBusy), width: '100%' }}>
-                    {photoBusy === 'generating' ? 'Generating…' : '✦ Enhance with AI'}
-                  </button>
-                )
-              )}
-
-              {!aiLimitReached ? (
-                <p style={{ fontSize: '11px', color: GRAY.text, marginTop: '8px', lineHeight: 1.4 }}>
-                  <strong>Enhance with AI</strong> creates a polished professional headshot — new background and attire, with only light, natural touch-ups to your face. Nothing is saved until you pick an option.
-                </p>
-              ) : (
-                <div style={{ marginTop: '10px', padding: '10px 12px', background: GRAY.bg, border: `1px solid ${GRAY.border}`, borderRadius: '6px', fontSize: '12px', color: GRAY.text, lineHeight: 1.5 }}>
-                  You’ve used all {AI_GEN_LIMIT} AI attempts for this session. Choose <strong>Use This AI Photo</strong> to keep the current AI version, or <strong>Use My Uploaded Photo</strong> above.
-                </div>
-              )}
-            </div>
-          )}
-
-          {photoSuccess && (
-            <div style={{ marginTop: '10px', padding: '8px 12px', background: GREEN.bg, border: `1px solid ${GREEN.border}`, borderRadius: '6px', fontSize: '13px', color: GREEN.text }}>
-              ✓ {photoSuccess}
-            </div>
-          )}
-          {photoError && (
-            <div style={{ marginTop: '10px', padding: '8px 12px', background: RED.bg, border: `1px solid ${RED.border}`, borderRadius: '6px', fontSize: '13px', color: RED.text }}>
-              {photoError}
-            </div>
-          )}
-
-          <p style={{ fontSize: '11px', color: GRAY.text, marginTop: '12px', lineHeight: 1.5 }}>
-            Accepted formats: JPG, PNG, WebP. Best results with a clear photo of your face.
-          </p>
+          <PhotoPanel userEmail={userEmail} initialPhoto={member.profile_photo || null} variant="sidebar" />
         </div>
       </div>
     </div>
@@ -591,25 +581,27 @@ function BuildWizard({ member, userEmail, certLabel }) {
   // Bio-generation inputs — transient (NOT member columns, so not persisted by
   // /api/save). They only feed the bio generator. The generated text lands in
   // form.bio, which IS a column and gets saved.
-  const [bioInputs, setBioInputs] = useState({ talking_points: '', years_experience: '', specialty: '' })
+  const [bioInputs, setBioInputs] = useState({
+    years_experience: '',   // years in the business
+    who_you_help: '',       // who they primarily serve
+    focus_areas: '',        // main focus areas
+    whats_different: '',     // what makes their approach different
+    personal_touch: '',     // family / hometown / hobbies
+    extra_credentials: '',   // designations beyond NSSA/IRMAACP
+    talking_points: '',      // optional free-form catch-all
+  })
   const [bioBusy, setBioBusy] = useState(false)
   const [bioError, setBioError] = useState(null)
+  const [discBusy, setDiscBusy] = useState(false)
+  const [discError, setDiscError] = useState(null)
   function updateBioInput(e) {
     const { name, value } = e.target
     setBioInputs(b => ({ ...b, [name]: value }))
   }
 
-  // Photo state (reuses the same endpoint + flow as Simple Edit)
-  const fileInputRef = useRef(null)
+  // Photo: the shared PhotoPanel owns the upload flow; we keep just the saved
+  // URL here so the Review step can show whether a photo was added.
   const [currentPhoto, setCurrentPhoto] = useState(member.profile_photo || null)
-  const [selectedFile, setSelectedFile] = useState(null)
-  const [photoPreview, setPhotoPreview] = useState(null)
-  const [aiPreviewUrl, setAiPreviewUrl] = useState(null)
-  const [photoBusy, setPhotoBusy] = useState(null)
-  const [photoMsg, setPhotoMsg] = useState(null)
-  const [aiGenCount, setAiGenCount] = useState(0)
-  const AI_GEN_LIMIT = 3
-  const aiLimitReached = aiGenCount >= AI_GEN_LIMIT
 
   function update(e) {
     const { name, value } = e.target
@@ -671,49 +663,8 @@ function BuildWizard({ member, userEmail, certLabel }) {
   }
 
   // ── Photo handlers (mirror Simple Edit) ─────────────────────────────────
-  function handleFileSelect(e) {
-    const file = e.target.files[0]
-    if (!file) return
-    if (file.size > 8 * 1024 * 1024) { setPhotoMsg({ type: 'err', text: 'Please choose an image under 8 MB.' }); return }
-    setSelectedFile(file); setAiPreviewUrl(null); setPhotoMsg(null)
-    const reader = new FileReader()
-    reader.onload = ev => setPhotoPreview(ev.target.result)
-    reader.readAsDataURL(file)
-  }
-  async function genPreview() {
-    if (!selectedFile || aiLimitReached || photoBusy) return
-    setPhotoBusy('generating'); setPhotoMsg(null)
-    try {
-      const base64 = await fileToResizedBase64(selectedFile)
-      const res = await fetch('/api/save-profile-photo', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: userEmail, imageData: base64, mimeType: 'image/jpeg', mode: 'preview', attempt: aiGenCount }),
-      })
-      const data = await res.json()
-      if (!res.ok || !data.ok) throw new Error(data.error || 'Generation failed')
-      setAiPreviewUrl(data.previewUrl + '?t=' + Date.now()); setAiGenCount(c => c + 1)
-    } catch (err) { setPhotoMsg({ type: 'err', text: err.message }) } finally { setPhotoBusy(null) }
-  }
-  async function commit(which) {
-    if (photoBusy) return
-    if (which === 'ai' && !aiPreviewUrl) return
-    if (which === 'original' && !selectedFile) return
-    setPhotoBusy('committing'); setPhotoMsg(null)
-    try {
-      const body = { email: userEmail, mode: 'commit' }
-      if (which === 'ai') body.previewUrl = aiPreviewUrl.split('?')[0]
-      else { body.imageData = await fileToResizedBase64(selectedFile); body.mimeType = 'image/jpeg'; body.saveOriginal = true }
-      const res = await fetch('/api/save-profile-photo', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-      })
-      const data = await res.json()
-      if (!res.ok || !data.ok) throw new Error(data.error || 'Save failed')
-      setCurrentPhoto(data.profile_photo + '?t=' + Date.now())
-      setSelectedFile(null); setPhotoPreview(null); setAiPreviewUrl(null)
-      if (fileInputRef.current) fileInputRef.current.value = ''
-      setPhotoMsg({ type: 'ok', text: which === 'ai' ? 'AI headshot saved.' : 'Photo saved.' })
-    } catch (err) { setPhotoMsg({ type: 'err', text: err.message }) } finally { setPhotoBusy(null) }
-  }
+  // (Photo upload is now handled by the shared <PhotoPanel>; the wizard only
+  // tracks the saved URL via the onPhotoSaved callback for the Review summary.)
 
   // Generate a bio via the AI endpoint, sending grounding facts (already
   // collected) plus the transient bio inputs. Result fills form.bio (editable).
@@ -728,9 +679,13 @@ function BuildWizard({ member, userEmail, certLabel }) {
           first_name: form.first_name, last_name: form.last_name,
           job_title: form.job_title, company: form.company,
           city: form.city, state: form.state,
-          talking_points: bioInputs.talking_points,
           years_experience: bioInputs.years_experience,
-          specialty: bioInputs.specialty,
+          who_you_help: bioInputs.who_you_help,
+          focus_areas: bioInputs.focus_areas,
+          whats_different: bioInputs.whats_different,
+          personal_touch: bioInputs.personal_touch,
+          extra_credentials: bioInputs.extra_credentials,
+          talking_points: bioInputs.talking_points,
         }),
       })
       const data = await res.json()
@@ -743,11 +698,32 @@ function BuildWizard({ member, userEmail, certLabel }) {
     }
   }
 
+  // Generate a recommended, personalized non-affiliation disclosure. The result
+  // fills form.financial_disclosure and is fully editable — advisors with their
+  // own firm's required disclosure can replace it.
+  async function generateDisclosure() {
+    if (discBusy) return
+    setDiscBusy(true); setDiscError(null)
+    try {
+      const res = await fetch('/api/generate-disclosure', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ first_name: form.first_name, last_name: form.last_name, company: form.company }),
+      })
+      const data = await res.json()
+      if (!res.ok || !data.ok) throw new Error(data.error || 'Generation failed')
+      setForm(f => ({ ...f, financial_disclosure: data.disclosure }))
+    } catch (err) {
+      setDiscError(err.message)
+    } finally {
+      setDiscBusy(false)
+    }
+  }
+
   const card = { background: 'white', borderRadius: '10px', border: `1px solid ${GRAY.border}`, padding: '2rem' }
   const twoCol = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 1rem' }
   const btnP = (disabled) => ({ padding: '11px 26px', fontSize: '14px', fontWeight: 600, background: disabled ? GRAY.bg : NSSA.dark, color: disabled ? GRAY.text : 'white', border: 'none', borderRadius: '6px', cursor: disabled ? 'not-allowed' : 'pointer' })
   const btnS = { padding: '11px 22px', fontSize: '14px', fontWeight: 600, background: 'white', color: GRAY.dark, border: `1px solid ${GRAY.border}`, borderRadius: '6px', cursor: 'pointer' }
-  const sBtn = (c, d) => ({ padding: '10px 18px', fontSize: '13px', fontWeight: 600, background: d ? GRAY.bg : c, color: d ? GRAY.text : 'white', border: 'none', borderRadius: '6px', cursor: d ? 'not-allowed' : 'pointer', width: '100%' })
 
   return (
     <div style={card}>
@@ -804,19 +780,30 @@ function BuildWizard({ member, userEmail, certLabel }) {
         <div>
           <h2 style={{ fontSize: '18px', color: NSSA.dark, marginBottom: '6px' }}>Your professional story</h2>
           <p style={{ fontSize: '13px', color: GRAY.text, marginBottom: '1.25rem', lineHeight: 1.6 }}>
-            Tell us a bit about yourself and we'll draft a polished, search-optimized bio for you. You can edit it afterward — and it doesn't need to be perfect here.
+            Answer a few quick questions and we'll draft a polished, search-optimized bio for you. Short answers are fine — you can edit the result afterward.
           </p>
 
           <div style={twoCol}>
-            <Field label="Years of experience (optional)" name="years_experience" value={bioInputs.years_experience} onChange={updateBioInput} placeholder="e.g. 15" />
-            <Field label="Areas of specialty (optional)" name="specialty" value={bioInputs.specialty} onChange={updateBioInput} placeholder="Social Security, Medicare/IRMAA, retirement income" />
+            <Field label="Years in the business" name="years_experience" value={bioInputs.years_experience} onChange={updateBioInput} placeholder="e.g. 15" />
+            <Field label="Other credentials (CFP, ChFC, etc.)" name="extra_credentials" value={bioInputs.extra_credentials} onChange={updateBioInput} placeholder="e.g. CFP®, RICP®" />
           </div>
 
-          <Field label="Tell us about yourself" name="talking_points" value={bioInputs.talking_points} onChange={updateBioInput} textarea minHeight="120px"
-            placeholder="Professional history, how you help clients, and a few personal facts — hobbies, family, anything that makes you, you. Doesn't need to be polished."
-            hint="The more you share, the better your bio. This is the raw material — we'll shape it." />
+          <Field label="Who you primarily help" name="who_you_help" value={bioInputs.who_you_help} onChange={updateBioInput}
+            placeholder="e.g. pre-retirees, business owners, federal employees, widows & widowers" />
 
-          <div style={{ margin: '0.5rem 0 1.25rem' }}>
+          <Field label="Your main focus areas" name="focus_areas" value={bioInputs.focus_areas} onChange={updateBioInput}
+            placeholder="e.g. Social Security timing, Medicare & IRMAA, retirement income, tax planning" />
+
+          <Field label="What makes your approach different" name="whats_different" value={bioInputs.whats_different} onChange={updateBioInput}
+            placeholder="One line on what sets your practice apart" />
+
+          <Field label="A personal touch" name="personal_touch" value={bioInputs.personal_touch} onChange={updateBioInput}
+            placeholder="Family, hometown, hobbies — anything that makes you, you" />
+
+          <Field label="Anything else? (optional)" name="talking_points" value={bioInputs.talking_points} onChange={updateBioInput} textarea minHeight="70px"
+            placeholder="Optional — any other details you'd like woven into your bio." />
+
+          <div style={{ margin: '0.75rem 0 1.25rem' }}>
             <button type="button" onClick={generateBio} disabled={bioBusy}
               style={{ padding: '11px 24px', fontSize: '14px', fontWeight: 600, background: bioBusy ? GRAY.bg : NSSA.medium, color: bioBusy ? GRAY.text : 'white', border: 'none', borderRadius: '6px', cursor: bioBusy ? 'wait' : 'pointer' }}>
               {bioBusy ? 'Writing your bio…' : (form.bio.trim() ? '✦ Regenerate Bio' : '✦ Generate My Bio')}
@@ -833,6 +820,16 @@ function BuildWizard({ member, userEmail, certLabel }) {
           <div style={{ marginTop: '1.25rem' }}>
             <Field label="Financial Disclosure" name="financial_disclosure" value={form.financial_disclosure} onChange={update} textarea
               placeholder="e.g. Securities offered through XYZ Member FINRA/SIPC..." hint="Optional. Displayed at the bottom of your directory profile." />
+            <div style={{ marginTop: '4px' }}>
+              <button type="button" onClick={generateDisclosure} disabled={discBusy}
+                style={{ padding: '8px 16px', fontSize: '13px', fontWeight: 600, background: discBusy ? GRAY.bg : 'white', color: discBusy ? GRAY.text : NSSA.dark, border: `1px solid ${NSSA.medium}`, borderRadius: '6px', cursor: discBusy ? 'wait' : 'pointer' }}>
+                {discBusy ? 'Writing…' : '✦ Suggest a recommended disclosure'}
+              </button>
+              {discError && <p style={{ fontSize: '13px', color: RED.text, marginTop: '6px' }}>{discError}</p>}
+              <p style={{ fontSize: '11px', color: GRAY.text, marginTop: '6px', lineHeight: 1.5 }}>
+                This generates a recommended non-affiliation disclosure (not affiliated with the SSA, Medicare, CMS, or HHS). Please review it, and replace it with your firm's required disclosure if you have one.
+              </p>
+            </div>
           </div>
         </div>
       )}
@@ -840,34 +837,17 @@ function BuildWizard({ member, userEmail, certLabel }) {
       {/* ── Step 5: Photo ───────────────────────────────────────────────── */}
       {step === 4 && (
         <div>
-          <h2 style={{ fontSize: '18px', color: NSSA.dark, marginBottom: '1.25rem' }}>Add your photo</h2>
-          <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr', gap: '1.5rem', alignItems: 'start' }}>
-            <div>
-              {currentPhoto
-                ? <img src={currentPhoto} alt="Profile" style={{ width: '160px', height: '160px', objectFit: 'cover', borderRadius: '8px', border: `1px solid ${GRAY.border}` }} />
-                : <div style={{ width: '160px', height: '160px', background: GRAY.bg, borderRadius: '8px', border: `1px solid ${GRAY.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: GRAY.text, fontSize: '12px', textAlign: 'center' }}>No photo yet</div>}
-            </div>
-            <div>
-              <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={handleFileSelect} style={{ display: 'none' }} />
-              <button type="button" onClick={() => fileInputRef.current?.click()} style={{ ...sBtn(NSSA.medium, false), marginBottom: '10px' }}>
-                {selectedFile ? '↺ Choose Different Photo' : '↑ Choose Photo'}
-              </button>
-
-              {photoPreview && (
-                <div>
-                  <div style={{ width: '140px', aspectRatio: '1/1', borderRadius: '6px', overflow: 'hidden', border: `1px solid ${GRAY.border}`, margin: '8px 0' }}>
-                    <img src={aiPreviewUrl || photoPreview} alt="preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxWidth: '260px' }}>
-                    {aiPreviewUrl && <button type="button" disabled={!!photoBusy} onClick={() => commit('ai')} style={sBtn(NSSA.dark, !!photoBusy)}>{photoBusy === 'committing' ? 'Saving…' : '✓ Use This AI Photo'}</button>}
-                    {!aiLimitReached && <button type="button" disabled={!!photoBusy} onClick={genPreview} style={sBtn(NSSA.medium, !!photoBusy)}>{photoBusy === 'generating' ? 'Generating…' : aiGenCount === 0 ? '✦ Enhance with AI' : `✦ Regenerate (${aiGenCount} of ${AI_GEN_LIMIT})`}</button>}
-                    <button type="button" disabled={!!photoBusy} onClick={() => commit('original')} style={sBtn('#374151', !!photoBusy)}>{photoBusy === 'committing' ? 'Saving…' : '↑ Use My Uploaded Photo'}</button>
-                  </div>
-                </div>
-              )}
-              {photoMsg && <p style={{ fontSize: '12px', marginTop: '8px', color: photoMsg.type === 'ok' ? GREEN.text : RED.text }}>{photoMsg.type === 'ok' ? '✓ ' : ''}{photoMsg.text}</p>}
-              <p style={{ fontSize: '11px', color: GRAY.text, marginTop: '10px', lineHeight: 1.5 }}>A photo is recommended but optional — you can add one later. JPG, PNG, or WebP.</p>
-            </div>
+          <h2 style={{ fontSize: '18px', color: NSSA.dark, marginBottom: '6px' }}>Add your photo</h2>
+          <p style={{ fontSize: '13px', color: GRAY.text, marginBottom: '1.25rem', lineHeight: 1.6 }}>
+            A professional photo helps clients connect with you. It's recommended but optional — you can add or change it anytime.
+          </p>
+          <div style={{ maxWidth: '420px' }}>
+            <PhotoPanel
+              userEmail={userEmail}
+              initialPhoto={member.profile_photo || null}
+              variant="wizard"
+              onPhotoSaved={(url) => setCurrentPhoto(url)}
+            />
           </div>
         </div>
       )}
@@ -879,16 +859,29 @@ function BuildWizard({ member, userEmail, certLabel }) {
           <p style={{ fontSize: '13px', color: GRAY.text, marginBottom: '1.25rem', lineHeight: 1.6 }}>
             Here's what we have. When you finish, your profile is created — your directory listing goes live after a short review (you'll get an email when it's published).
           </p>
-          <div style={{ fontSize: '14px', color: '#374151', lineHeight: 1.9 }}>
-            <div><strong>Name:</strong> {form.first_name} {form.last_name}</div>
-            {form.job_title && <div><strong>Title:</strong> {form.job_title}</div>}
-            {form.company && <div><strong>Company:</strong> {form.company}</div>}
-            <div><strong>Location:</strong> {[form.city, form.state].filter(Boolean).join(', ')}{form.zip ? ` ${form.zip}` : ''}</div>
-            {form.phone && <div><strong>Phone:</strong> {form.phone}</div>}
-            {form.website && <div><strong>Website:</strong> {form.website}</div>}
-            <div><strong>Photo:</strong> {currentPhoto ? 'Added ✓' : 'Not added'}</div>
-            <div><strong>Bio:</strong> {(form.bio || '').trim() ? `${(form.bio || '').trim().length} characters` : 'Not written yet'}</div>
+          <div style={{ display: 'grid', gridTemplateColumns: currentPhoto ? '120px 1fr' : '1fr', gap: '1.5rem', alignItems: 'start' }}>
+            {currentPhoto && (
+              <img src={currentPhoto} alt="Your profile photo" style={{ width: '120px', height: '120px', objectFit: 'cover', borderRadius: '8px', border: `1px solid ${GRAY.border}` }} />
+            )}
+            <div style={{ fontSize: '14px', color: '#374151', lineHeight: 1.9 }}>
+              <div><strong>Name:</strong> {form.first_name} {form.last_name}</div>
+              {form.job_title && <div><strong>Title:</strong> {form.job_title}</div>}
+              {form.company && <div><strong>Company:</strong> {form.company}</div>}
+              <div><strong>Location:</strong> {[form.city, form.state].filter(Boolean).join(', ')}{form.zip ? ` ${form.zip}` : ''}</div>
+              {form.phone && <div><strong>Phone:</strong> {form.phone}</div>}
+              {form.website && <div><strong>Website:</strong> {form.website}</div>}
+              <div><strong>Photo:</strong> {currentPhoto ? 'Added ✓' : 'Not added'}</div>
+            </div>
           </div>
+
+          {(form.bio || '').trim() && (
+            <div style={{ marginTop: '1.5rem' }}>
+              <p style={{ fontSize: '13px', fontWeight: 600, color: NSSA.dark, marginBottom: '6px' }}>Your bio</p>
+              <div style={{ fontSize: '14px', color: '#374151', lineHeight: 1.7, background: GRAY.bg, borderRadius: '8px', padding: '1rem', whiteSpace: 'pre-wrap', maxHeight: '220px', overflowY: 'auto' }}>
+                {form.bio.trim()}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
