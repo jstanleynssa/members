@@ -1,6 +1,19 @@
 import { createServerSupabaseClient } from '@supabase/auth-helpers-nextjs'
 import { createClient } from '@supabase/supabase-js'
 
+// Normalize a user-entered URL: accept bare domains ("www.site.com",
+// "site.com") and prepend https:// so the stored value is a valid link.
+// Empty/blank stays empty. Never throws — a value we can't parse is returned
+// trimmed and untouched rather than blocking the save.
+function normalizeUrl(value) {
+  if (value == null) return value
+  const v = String(value).trim()
+  if (!v) return ''
+  if (/^https?:\/\//i.test(v)) return v          // already has scheme
+  if (/^[\w.-]+\.[a-z]{2,}(\/|$|\?)/i.test(v)) return 'https://' + v // bare domain
+  return v                                        // something else — leave as-is
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end()
 
@@ -27,27 +40,16 @@ export default async function handler(req, res) {
   const targetEmail =
     isAdmin && req.body.email ? req.body.email : session.user.email
 
-  // Build the update payload. Only include directory_opt_out when the caller
-  // actually sent it — otherwise forms that don't have the checkbox (the
-  // dashboard's inline form) would overwrite an existing opt-out back to false.
-  const updates = {
-    first_name, last_name, job_title, company,
-    address, city, state, zip,
-    phone, mobile_phone, website, linkedin_url,
-    bio, financial_disclosure,
-  }
-  if (Object.prototype.hasOwnProperty.call(req.body, 'directory_opt_out')) {
-    updates.directory_opt_out = req.body.directory_opt_out === true
-  }
-  // Only set when explicitly sent (the wizard's Finish step), so ordinary
-  // edits never flip it. Once true it stays true.
-  if (Object.prototype.hasOwnProperty.call(req.body, 'profile_completed')) {
-    updates.profile_completed = req.body.profile_completed === true
-  }
-
   const { error } = await supabaseAdmin
     .from('members')
-    .update(updates)
+    .update({
+      first_name, last_name, job_title, company,
+      address, city, state, zip,
+      phone, mobile_phone,
+      website: normalizeUrl(website),
+      linkedin_url: normalizeUrl(linkedin_url),
+      bio, financial_disclosure,
+    })
     .eq('email', targetEmail)
 
   if (error) return res.status(500).json({ error: error.message })
