@@ -207,12 +207,12 @@ function PhotoPanel({ userEmail, initialPhoto = null, onPhotoSaved, variant = 's
   const [currentPhoto, setCurrentPhoto] = useState(initialPhoto)
   const [selectedFile, setSelectedFile] = useState(null)
   const [photoPreview, setPhotoPreview] = useState(null)
-  const [aiPreviewUrl, setAiPreviewUrl] = useState(null)
+  const [aiPreviews, setAiPreviews]     = useState([]) // accumulating AI versions (up to AI_GEN_LIMIT)
   const [photoBusy, setPhotoBusy]       = useState(null) // 'generating' | 'committing' | null
   const [photoSuccess, setPhotoSuccess] = useState(null)
   const [photoError, setPhotoError]     = useState(null)
-  const [aiGenCount, setAiGenCount]     = useState(0)
   const AI_GEN_LIMIT = 3
+  const aiGenCount = aiPreviews.length
   const aiLimitReached = aiGenCount >= AI_GEN_LIMIT
 
   const btn = (color, disabled) => ({
@@ -230,7 +230,7 @@ function PhotoPanel({ userEmail, initialPhoto = null, onPhotoSaved, variant = 's
       return
     }
     setSelectedFile(file)
-    setAiPreviewUrl(null)
+    setAiPreviews([])     // a new upload clears prior AI versions
     setPhotoSuccess(null)
     setPhotoError(null)
     const reader = new FileReader()
@@ -250,8 +250,7 @@ function PhotoPanel({ userEmail, initialPhoto = null, onPhotoSaved, variant = 's
       })
       const data = await res.json()
       if (!res.ok || !data.ok) throw new Error(data.error || 'Generation failed')
-      setAiPreviewUrl(data.previewUrl + '?t=' + Date.now())
-      setAiGenCount(c => c + 1)
+      setAiPreviews(prev => [...prev, data.previewUrl + '?t=' + Date.now()]) // accumulate
     } catch (err) {
       setPhotoError(err.message)
     } finally {
@@ -259,9 +258,10 @@ function PhotoPanel({ userEmail, initialPhoto = null, onPhotoSaved, variant = 's
     }
   }
 
-  async function commitPhoto(which) {
+  // url: for an AI commit, the specific preview URL chosen from the gallery.
+  async function commitPhoto(which, url) {
     if (photoBusy) return
-    if (which === 'ai' && !aiPreviewUrl) return
+    if (which === 'ai' && !url) return
     if (which === 'original' && !selectedFile) return
     // Hard likeness checkpoint: AI photos can occasionally drift from the real
     // person. Require explicit confirmation that it still looks like them before
@@ -269,7 +269,7 @@ function PhotoPanel({ userEmail, initialPhoto = null, onPhotoSaved, variant = 's
     if (which === 'ai') {
       const ok = typeof window !== 'undefined' && window.confirm(
         'Before saving: does this AI photo still clearly look like you?\n\n' +
-        'AI can sometimes change a face. If it doesn\u2019t look like you, click Cancel and use your uploaded photo or regenerate.'
+        'AI can sometimes change a face. If it doesn\u2019t look like you, click Cancel and use your uploaded photo or pick a different version.'
       )
       if (!ok) return
     }
@@ -277,7 +277,7 @@ function PhotoPanel({ userEmail, initialPhoto = null, onPhotoSaved, variant = 's
     try {
       const body = { email: userEmail, mode: 'commit' }
       if (which === 'ai') {
-        body.previewUrl = aiPreviewUrl.split('?')[0]
+        body.previewUrl = url.split('?')[0]
       } else {
         body.imageData = await fileToResizedBase64(selectedFile)
         body.mimeType = 'image/jpeg'
@@ -293,7 +293,7 @@ function PhotoPanel({ userEmail, initialPhoto = null, onPhotoSaved, variant = 's
       const saved = data.profile_photo + '?t=' + Date.now()
       setCurrentPhoto(saved)
       setPhotoSuccess(which === 'ai' ? 'Your AI headshot has been saved.' : 'Your photo has been saved.')
-      setSelectedFile(null); setPhotoPreview(null); setAiPreviewUrl(null)
+      setSelectedFile(null); setPhotoPreview(null); setAiPreviews([])
       if (fileInputRef.current) fileInputRef.current.value = ''
       if (onPhotoSaved) onPhotoSaved(data.profile_photo)
     } catch (err) {
@@ -317,70 +317,70 @@ function PhotoPanel({ userEmail, initialPhoto = null, onPhotoSaved, variant = 's
       </div>
 
       <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={handleFileSelect} style={{ display: 'none' }} />
-      <button type="button" onClick={() => fileInputRef.current?.click()} style={{ ...btn(NSSA.medium, false), width: '100%', marginBottom: '1rem' }}>
-        {selectedFile ? '↺ Choose Different Photo' : '↑ Choose Photo'}
-      </button>
+      <div style={{ textAlign: 'center', marginBottom: '1rem' }}>
+        <button type="button" onClick={() => fileInputRef.current?.click()} style={{ ...btn(NSSA.medium, false), width: '100%', maxWidth: '320px' }}>
+          {selectedFile ? '↺ Choose Different Photo' : '↑ Choose Photo'}
+        </button>
+      </div>
 
       {photoPreview && (
         <div>
-          <div style={{ display: 'grid', gridTemplateColumns: aiPreviewUrl ? '1fr 1fr' : '1fr', gap: '1rem', alignItems: 'start' }}>
-            {/* Uploaded photo */}
+          {/* 4-tile gallery: uploaded photo + up to 3 AI versions, all selectable */}
+          <div style={{ display: 'grid', gridTemplateColumns: variant === 'sidebar' ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: '12px', alignItems: 'start' }}>
+            {/* Uploaded photo (anchor) */}
             <div>
-              <p style={{ fontSize: '12px', color: '#374151', fontWeight: 600, marginBottom: '8px', textAlign: 'center' }}>Your uploaded photo</p>
+              <p style={{ fontSize: '11px', color: '#374151', fontWeight: 600, marginBottom: '6px', textAlign: 'center' }}>Your photo</p>
               <div style={{ width: '100%', aspectRatio: '1 / 1', borderRadius: '6px', overflow: 'hidden', border: `1px solid ${GRAY.border}`, marginBottom: '6px' }}>
                 <img src={photoPreview} alt="Your uploaded photo" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
               </div>
-              <button type="button" disabled={!!photoBusy} onClick={() => commitPhoto('original')} style={{ ...btn('#374151', !!photoBusy), width: '100%' }}>
-                {photoBusy === 'committing' ? 'Saving…' : '↑ Use My Uploaded Photo'}
+              <button type="button" disabled={!!photoBusy} onClick={() => commitPhoto('original')} style={{ ...btn('#374151', !!photoBusy), width: '100%', padding: '8px 6px', fontSize: '12px' }}>
+                {photoBusy === 'committing' ? 'Saving…' : 'Use This'}
               </button>
             </div>
 
-            {/* AI preview (only once generated) */}
-            {aiPreviewUrl && (
-              <div>
-                <p style={{ fontSize: '12px', color: NSSA.dark, fontWeight: 600, marginBottom: '8px', textAlign: 'center' }}>
-                  AI preview {aiGenCount > 1 ? `(v${aiGenCount})` : ''}
-                </p>
+            {/* AI versions, accumulating */}
+            {aiPreviews.map((url, i) => (
+              <div key={url}>
+                <p style={{ fontSize: '11px', color: NSSA.dark, fontWeight: 600, marginBottom: '6px', textAlign: 'center' }}>AI v{i + 1}</p>
                 <div style={{ width: '100%', aspectRatio: '1 / 1', borderRadius: '6px', overflow: 'hidden', border: `2px solid ${NSSA.light}`, marginBottom: '6px' }}>
-                  <img src={aiPreviewUrl} alt="AI headshot preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  <img src={url} alt={`AI headshot version ${i + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                 </div>
-                <button type="button" disabled={!!photoBusy} onClick={() => commitPhoto('ai')} style={{ ...btn(NSSA.dark, !!photoBusy), width: '100%', marginBottom: '6px' }}>
-                  {photoBusy === 'committing' ? 'Saving…' : '✓ Use This AI Photo'}
+                <button type="button" disabled={!!photoBusy} onClick={() => commitPhoto('ai', url)} style={{ ...btn(NSSA.dark, !!photoBusy), width: '100%', padding: '8px 6px', fontSize: '12px' }}>
+                  {photoBusy === 'committing' ? 'Saving…' : 'Use This'}
                 </button>
-                {!aiLimitReached && (
-                  <button type="button" disabled={!!photoBusy} onClick={generatePreview} style={{ ...btn(NSSA.medium, !!photoBusy), width: '100%' }}>
-                    {photoBusy === 'generating' ? 'Generating…' : `✦ Regenerate (${aiGenCount} of ${AI_GEN_LIMIT})`}
-                  </button>
-                )}
+              </div>
+            ))}
+
+            {/* Empty generate slot (if under the cap) */}
+            {!aiLimitReached && (
+              <div>
+                <p style={{ fontSize: '11px', color: GRAY.text, fontWeight: 600, marginBottom: '6px', textAlign: 'center' }}>{aiGenCount === 0 ? 'AI headshot' : `AI v${aiGenCount + 1}`}</p>
+                <button type="button" disabled={!!photoBusy} onClick={generatePreview}
+                  style={{ width: '100%', aspectRatio: '1 / 1', borderRadius: '6px', border: `2px dashed ${NSSA.light}`, background: '#f8fbfe', color: NSSA.medium, fontSize: '12px', fontWeight: 600, cursor: photoBusy ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: '8px' }}>
+                  {photoBusy === 'generating' ? 'Generating…' : (aiGenCount === 0 ? '✦ Enhance with AI' : '✦ Generate another')}
+                </button>
               </div>
             )}
           </div>
 
-          <p style={{ fontSize: '11px', color: GRAY.text, textAlign: 'center', margin: '8px 0 1rem' }}>Shown in the square crop used on your profile.</p>
+          <p style={{ fontSize: '11px', color: GRAY.text, textAlign: 'center', margin: '10px 0 0' }}>Each photo is shown in the square crop used on your profile. Click <strong>Use This</strong> under the one you want.</p>
 
-          {/* First-time Enhance button (before any AI preview exists) */}
-          {!aiPreviewUrl && !aiLimitReached && (
-            <button type="button" disabled={!!photoBusy} onClick={generatePreview} style={{ ...btn(NSSA.dark, !!photoBusy), width: '100%' }}>
-              {photoBusy === 'generating' ? 'Generating…' : '✦ Enhance with AI'}
-            </button>
-          )}
-
-          {/* Likeness warning whenever an AI preview is shown */}
-          {aiPreviewUrl && (
-            <div style={{ marginTop: '6px', padding: '10px 12px', background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: '6px', fontSize: '12px', color: '#9a3412', lineHeight: 1.5 }}>
-              <strong>Check the AI photo carefully.</strong> AI can sometimes change a face. Only use it if it clearly looks like you — otherwise use your uploaded photo or regenerate.
+          {/* Likeness warning whenever AI versions exist */}
+          {aiGenCount > 0 && (
+            <div style={{ marginTop: '10px', padding: '10px 12px', background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: '6px', fontSize: '12px', color: '#9a3412', lineHeight: 1.5 }}>
+              <strong>Check the AI photos carefully.</strong> AI can sometimes change a face. Only use one if it clearly looks like you — otherwise use your own photo.
             </div>
           )}
 
-          {!aiLimitReached ? (
-            <p style={{ fontSize: '11px', color: GRAY.text, marginTop: '8px', lineHeight: 1.4 }}>
-              <strong>Enhance with AI</strong> creates a polished professional headshot — new background and attire, with only light touch-ups to your face. Nothing is saved until you pick an option.
-            </p>
-          ) : (
+          {aiLimitReached && (
             <div style={{ marginTop: '10px', padding: '10px 12px', background: GRAY.bg, border: `1px solid ${GRAY.border}`, borderRadius: '6px', fontSize: '12px', color: GRAY.text, lineHeight: 1.5 }}>
-              You’ve used all {AI_GEN_LIMIT} AI attempts for this session. Choose <strong>Use This AI Photo</strong> (if it looks like you) or <strong>Use My Uploaded Photo</strong>.
+              You’ve used all {AI_GEN_LIMIT} AI attempts for this session. Pick the version that looks most like you, or use your own photo.
             </div>
           )}
+
+          <p style={{ fontSize: '11px', color: GRAY.text, marginTop: '10px', lineHeight: 1.4 }}>
+            <strong>Enhance with AI</strong> creates a polished professional headshot — new background and attire, with only light touch-ups to your face. Nothing is saved until you pick one.
+          </p>
         </div>
       )}
 
@@ -896,12 +896,12 @@ function BuildWizard({ member, userEmail, certLabel }) {
           <p style={{ fontSize: '13px', color: GRAY.text, marginBottom: '1.25rem', lineHeight: 1.6 }}>
             A professional photo helps clients connect with you. It's recommended but optional — you can add or change it anytime.
           </p>
-          <div style={{ maxWidth: '440px' }}>
+          <div>
             <PhotoPanel
               userEmail={userEmail}
               initialPhoto={member.profile_photo || null}
               variant="wizard"
-              onPhotoSaved={(url) => setCurrentPhoto(url)}
+              onPhotoSaved={(url) => { setCurrentPhoto(url); setStep(5) }}
             />
           </div>
         </div>
@@ -983,7 +983,7 @@ export default function ProfilePage({ member, userEmail, mode }) {
         <span style={{ fontSize: '12px', color: GRAY.text }}>{userEmail}</span>
       </div>
 
-      <div style={{ maxWidth: mode === 'edit' ? '1040px' : '780px', margin: '0 auto', padding: '2rem' }}>
+      <div style={{ maxWidth: mode === 'edit' ? '1040px' : '900px', margin: '0 auto', padding: '2rem' }}>
         {mode === 'edit'
           ? <SimpleEdit member={member} userEmail={userEmail} />
           : <BuildWizard member={member} userEmail={userEmail} certLabel={certLabel} />}
