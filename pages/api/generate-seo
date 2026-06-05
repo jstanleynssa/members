@@ -1,0 +1,115 @@
+import { createServerSupabaseClient } from '@supabase/auth-helpers-nextjs'
+
+// Same model knob as the bio endpoint (defaults to a widely-available model;
+// override via OPENAI_BIO_MODEL in Vercel).
+const SEO_MODEL = process.env.OPENAI_BIO_MODEL || 'gpt-4o-mini'
+
+// Hard caps enforced after generation, aligned with current (2026) SEO guidance:
+// title ~50-60 chars, meta ~155-158 chars. These are belt-and-suspenders in
+// case the model overshoots — we trim cleanly at a word boundary.
+const TITLE_MAX = 60
+const META_MAX = 158
+const H1_MAX = 70
+
+function trimToWord(str, max) {
+  const s = (str || '').trim().replace(/\s+/g, ' ')
+  if (s.length <= max) return s
+  const cut = s.slice(0, max)
+  const lastSpace = cut.lastIndexOf(' ')
+  return (lastSpace > max * 0.6 ? cut.slice(0, lastSpace) : cut).trim()
+}
+
+export default async function handler(req, res) {
+  if (req.method !== 'POST') return res.status(405).end()
+
+  const supabaseServer = createServerSupabaseClient({ req, res })
+  const { data: { session } } = await supabaseServer.auth.getSession()
+  if (!session) return res.status(401).json({ error: 'Not authenticated' })
+
+  const apiKey = process.env.OPENAI_API_KEY
+  if (!apiKey) return res.status(500).json({ error: 'SEO generation is not configured.' })
+
+  const {
+    first_name = '', last_name = '', job_title = '', company = '',
+    city = '', state = '', bio = '',
+    nssa_certified = false, irmaa_certified = false,
+  } = req.body
+
+  const name = `${first_name} ${last_name}`.trim()
+  const location = [city, state].filter(Boolean).join(', ')
+  const certs = [
+    nssa_certified ? 'NSSA® (National Social Security Advisor)' : null,
+    irmaa_certified ? 'IRMAACP™ (IRMAA Certified Planner)' : null,
+  ].filter(Boolean).join(' and ')
+
+  const systemMsg =
+    'You are an SEO specialist creating metadata for financial advisor profile ' +
+    'pages on the National Social Security Advisors directory. You follow current ' +
+    'best practices: concise, keyword-relevant, human-readable, never spammy or ' +
+    'keyword-stuffed. You return only valid JSON, no markdown, no commentary.'
+
+  const userMsg =
+`Create SEO metadata for this certified advisor's directory profile page.
+
+Advisor: ${name || 'the advisor'}
+Job title: ${job_title || 'Financial Advisor'}
+Company: ${company || '(n/a)'}
+Location: ${location || '(n/a)'}
+Certifications: ${certs || 'NSSA®'}
+Bio (for context): ${(bio || '').slice(0, 600)}
+
+Produce three fields, optimized for people searching for a Social Security / Medicare IRMAA advisor in this advisor's area:
+
+1. "h1" — a clean, human page headline (NOT keyword-stuffed). Credential-forward and location-aware. Around 40-70 characters. Example style: "NSSA® & IRMAACP™ Certified Advisor in Austin, TX".
+2. "page_title" — an SEO <title>. MUST be 50-60 characters. Put the most important keywords (name or role + location) first. Use a hyphen "-" as separator, never a pipe. No more than two segments. Do not exceed 60 characters.
+3. "meta_description" — a compelling search snippet. MUST be 150-158 characters. Front-load the advisor's role and location. Active, benefit-oriented, one or two sentences. Do not exceed 158 characters.
+
+Return ONLY this JSON object, nothing else:
+{"h1":"...","page_title":"...","meta_description":"..."}`
+
+  try {
+    const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: SEO_MODEL,
+        messages: [
+          { role: 'system', content: systemMsg },
+          { role: 'user', content: userMsg },
+        ],
+        temperature: 0.6,
+        response_format: { type: 'json_object' },
+      }),
+    })
+
+    if (!resp.ok) {
+      const errText = await resp.text()
+      console.error(`[generate-seo] OpenAI ${resp.status}: ${errText}`)
+      return res.status(502).json({ error: 'Could not generate SEO fields right now.' })
+    }
+
+    const data = await resp.json()
+    let parsed = {}
+    try {
+      parsed = JSON.parse(data?.choices?.[0]?.message?.content || '{}')
+    } catch {
+      console.error('[generate-seo] could not parse JSON from model')
+      return res.status(502).json({ error: 'SEO generation returned an unexpected format.' })
+    }
+
+    // Enforce limits regardless of what the model returned.
+    const directory_h1         = trimToWord(parsed.h1, H1_MAX)
+    const directory_page_title = trimToWord(parsed.page_title, TITLE_MAX)
+    const meta_description      = trimToWord(parsed.meta_description, META_MAX)
+
+    return res.status(200).json({
+      ok: true,
+      directory_h1,
+      directory_page_title,
+      meta_description,
+    })
+  } catch (err) {
+    console.error('[generate-seo] error:', err.message)
+    return res.status(500).json({ error: err.message })
+  }
+}
