@@ -678,6 +678,16 @@ function BuildWizard({ member, userEmail, certLabel }) {
     setError(null); setSaving(true)
     try {
       await persist({ profile_completed: true })
+      // Fire the "your profile is live" confirmation email. Best-effort: never
+      // block completion on it — the profile is already saved. Failures are
+      // swallowed so the advisor always reaches the dashboard.
+      try {
+        await fetch('/api/profile-live-notification', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: userEmail, firstName: form.first_name }),
+        })
+      } catch (_) { /* non-fatal: profile is live regardless */ }
       // Send them to the dashboard — they just finished, no need to drop them
       // straight into the edit form.
       if (typeof window !== 'undefined') window.location.href = '/dashboard'
@@ -912,7 +922,7 @@ function BuildWizard({ member, userEmail, certLabel }) {
         <div>
           <h2 style={{ fontSize: '18px', color: NSSA.dark, marginBottom: '1rem' }}>Review your profile</h2>
           <p style={{ fontSize: '13px', color: GRAY.text, marginBottom: '1.25rem', lineHeight: 1.6 }}>
-            Here's what we have. When you finish, your profile is created — your directory listing goes live after a short review (you'll get an email when it's published).
+            Here's what we have. When you finish, your profile goes live on the public NSSA® Advisor Directory and we'll email you a confirmation. You can edit it any time from your dashboard.
           </p>
           <div style={{ display: 'grid', gridTemplateColumns: currentPhoto ? '120px 1fr' : '1fr', gap: '1.5rem', alignItems: 'start' }}>
             {currentPhoto && (
