@@ -435,6 +435,17 @@ export default function Dashboard({ member, subs, selectedYear, availableYears, 
                   </div>
                 )}
 
+                {/* Financial disclosure preview — shown as it appears at the
+                    bottom of the public profile. Fine-print styling to match. */}
+                {(member.financial_disclosure || '').trim() && (
+                  <div style={{ marginTop: '1.25rem', paddingTop: '1.25rem', borderTop: `1px solid ${GRAY.bg}` }}>
+                    <p style={{ fontSize: '11px', fontWeight: 600, color: GRAY.text, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '8px' }}>Financial Disclosure</p>
+                    <p style={{ fontSize: '12px', color: GRAY.text, lineHeight: 1.6, margin: 0, whiteSpace: 'pre-wrap' }}>
+                      {member.financial_disclosure.trim()}
+                    </p>
+                  </div>
+                )}
+
                 {/* Edit CTA */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '1.5rem', paddingTop: '1.25rem', borderTop: `1px solid ${GRAY.bg}` }}>
                   <Link href="/profile" style={{ ...btn(NSSA.dark, false), textDecoration: 'none', display: 'inline-block' }}>
