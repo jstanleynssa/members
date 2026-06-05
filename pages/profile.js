@@ -501,8 +501,8 @@ function SimpleEdit({ member, userEmail }) {
             <Field label="Mobile Phone" name="mobile_phone" value={form.mobile_phone} onChange={handleChange} placeholder="(555) 555-5555" type="tel" />
           </div>
           <div style={twoCol}>
-            <Field label="Website"  name="website"      value={form.website}      onChange={handleChange} placeholder="https://yoursite.com" type="url" />
-            <Field label="LinkedIn" name="linkedin_url" value={form.linkedin_url} onChange={handleChange} placeholder="https://linkedin.com/in/you" type="url" hint="Paste your full LinkedIn profile URL." />
+            <Field label="Website"  name="website"      value={form.website}      onChange={handleChange} placeholder="yoursite.com" type="text" />
+            <Field label="LinkedIn" name="linkedin_url" value={form.linkedin_url} onChange={handleChange} placeholder="linkedin.com/in/you" type="text" hint="Paste your full LinkedIn profile URL." />
           </div>
         </Section>
 
@@ -821,8 +821,8 @@ function BuildWizard({ member, userEmail, certLabel }) {
             <strong>Your office phone is public</strong> — it's how clients get in touch. <strong>Your mobile phone is private</strong>, used only by NSSA to reach you, and is never displayed or shared.
           </div>
           <div style={twoCol}>
-            <Field label="Website"  name="website"      value={form.website}      onChange={update} placeholder="https://yoursite.com" type="url" />
-            <Field label="LinkedIn" name="linkedin_url" value={form.linkedin_url} onChange={update} placeholder="https://www.linkedin.com/in/your-name" type="url" />
+            <Field label="Website"  name="website"      value={form.website}      onChange={update} placeholder="yoursite.com" type="text" />
+            <Field label="LinkedIn" name="linkedin_url" value={form.linkedin_url} onChange={update} placeholder="www.linkedin.com/in/your-name" type="text" />
           </div>
           <div style={{ padding: '10px 12px', background: GRAY.bg, border: `1px solid ${GRAY.border}`, borderRadius: '6px', fontSize: '12px', color: '#374151', lineHeight: 1.6 }}>
             <strong>How to find your LinkedIn link:</strong>
