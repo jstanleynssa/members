@@ -654,8 +654,9 @@ function BuildWizard({ member, userEmail, certLabel }) {
     setError(null); setSaving(true)
     try {
       await persist({ profile_completed: true })
-      // Reload so getServerSideProps re-routes them to the (now) Simple Edit view.
-      if (typeof window !== 'undefined') window.location.href = '/profile'
+      // Send them to the dashboard — they just finished, no need to drop them
+      // straight into the edit form.
+      if (typeof window !== 'undefined') window.location.href = '/dashboard'
     } catch (err) {
       setError(err.message)
       setSaving(false)
@@ -727,8 +728,20 @@ function BuildWizard({ member, userEmail, certLabel }) {
 
   return (
     <div style={card}>
+      <style>{`
+        @keyframes wizFadeIn {
+          from { opacity: 0; transform: translateY(10px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+        .wiz-step { animation: wizFadeIn 0.32s ease-out; }
+        @media (prefers-reduced-motion: reduce) {
+          .wiz-step { animation: none; }
+          .wiz-bar-fill { transition: none !important; }
+        }
+      `}</style>
       <ProgressBar step={step} />
 
+      <div className="wiz-step" key={step}>
       {/* ── Step 1: Welcome / identity ──────────────────────────────────── */}
       {step === 0 && (
         <div>
@@ -803,13 +816,16 @@ function BuildWizard({ member, userEmail, certLabel }) {
           <Field label="Anything else? (optional)" name="talking_points" value={bioInputs.talking_points} onChange={updateBioInput} textarea minHeight="70px"
             placeholder="Optional — any other details you'd like woven into your bio." />
 
-          <div style={{ margin: '0.75rem 0 1.25rem' }}>
+          <div style={{ margin: '0.75rem 0 0.5rem' }}>
             <button type="button" onClick={generateBio} disabled={bioBusy}
               style={{ padding: '11px 24px', fontSize: '14px', fontWeight: 600, background: bioBusy ? GRAY.bg : NSSA.medium, color: bioBusy ? GRAY.text : 'white', border: 'none', borderRadius: '6px', cursor: bioBusy ? 'wait' : 'pointer' }}>
-              {bioBusy ? 'Writing your bio…' : (form.bio.trim() ? '✦ Regenerate Bio' : '✦ Generate My Bio')}
+              {bioBusy ? 'Writing your bio…' : (form.bio.trim() ? '✦ Regenerate' : '✦ Generate Bio')}
             </button>
             {bioError && <p style={{ fontSize: '13px', color: RED.text, marginTop: '8px' }}>{bioError}</p>}
           </div>
+          <p style={{ fontSize: '11px', color: GRAY.text, margin: '0 0 1rem', lineHeight: 1.5 }}>
+            This creates a first draft from your answers. Edit it freely below — change anything you like, or rewrite it entirely.
+          </p>
 
           <Field label="Your Bio" name="bio" value={form.bio} onChange={update} textarea minHeight="180px"
             placeholder="Your generated bio will appear here — or write your own. You can freely edit after generating." />
@@ -841,7 +857,7 @@ function BuildWizard({ member, userEmail, certLabel }) {
           <p style={{ fontSize: '13px', color: GRAY.text, marginBottom: '1.25rem', lineHeight: 1.6 }}>
             A professional photo helps clients connect with you. It's recommended but optional — you can add or change it anytime.
           </p>
-          <div style={{ maxWidth: '420px' }}>
+          <div style={{ maxWidth: '300px' }}>
             <PhotoPanel
               userEmail={userEmail}
               initialPhoto={member.profile_photo || null}
@@ -882,8 +898,18 @@ function BuildWizard({ member, userEmail, certLabel }) {
               </div>
             </div>
           )}
+
+          {(form.financial_disclosure || '').trim() && (
+            <div style={{ marginTop: '1.25rem' }}>
+              <p style={{ fontSize: '13px', fontWeight: 600, color: NSSA.dark, marginBottom: '6px' }}>Financial disclosure</p>
+              <div style={{ fontSize: '13px', color: GRAY.text, lineHeight: 1.6, background: GRAY.bg, borderRadius: '8px', padding: '1rem', whiteSpace: 'pre-wrap' }}>
+                {form.financial_disclosure.trim()}
+              </div>
+            </div>
+          )}
         </div>
       )}
+      </div>
 
       {error && <p style={{ fontSize: '13px', color: RED.text, marginTop: '1rem' }}>{error}</p>}
 
