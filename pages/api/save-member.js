@@ -1,6 +1,17 @@
 import { createServerSupabaseClient } from '@supabase/auth-helpers-nextjs'
 import { createClient } from '@supabase/supabase-js'
 
+// Normalize a user-entered URL: accept bare domains and prepend https://.
+// Empty stays empty; unparseable values pass through untouched.
+function normalizeUrl(value) {
+  if (value == null) return value
+  const v = String(value).trim()
+  if (!v) return ''
+  if (/^https?:\/\//i.test(v)) return v
+  if (/^[\w.-]+\.[a-z]{2,}(\/|$|\?)/i.test(v)) return 'https://' + v
+  return v
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end()
 
@@ -27,7 +38,8 @@ export default async function handler(req, res) {
     .from('members')
     .update({
       first_name, last_name, job_title, company,
-      address, city, state, zip, phone, website,
+      address, city, state, zip, phone,
+      website: normalizeUrl(website),
       bio, financial_disclosure
     })
     .eq('email', email)
