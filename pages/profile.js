@@ -263,6 +263,16 @@ function PhotoPanel({ userEmail, initialPhoto = null, onPhotoSaved, variant = 's
     if (photoBusy) return
     if (which === 'ai' && !aiPreviewUrl) return
     if (which === 'original' && !selectedFile) return
+    // Hard likeness checkpoint: AI photos can occasionally drift from the real
+    // person. Require explicit confirmation that it still looks like them before
+    // it can be saved.
+    if (which === 'ai') {
+      const ok = typeof window !== 'undefined' && window.confirm(
+        'Before saving: does this AI photo still clearly look like you?\n\n' +
+        'AI can sometimes change a face. If it doesn\u2019t look like you, click Cancel and use your uploaded photo or regenerate.'
+      )
+      if (!ok) return
+    }
     setPhotoBusy('committing'); setPhotoError(null); setPhotoSuccess(null)
     try {
       const body = { email: userEmail, mode: 'commit' }
@@ -313,48 +323,62 @@ function PhotoPanel({ userEmail, initialPhoto = null, onPhotoSaved, variant = 's
 
       {photoPreview && (
         <div>
-          <p style={{ fontSize: '12px', color: '#374151', fontWeight: 600, marginBottom: '8px', textAlign: 'center' }}>Your uploaded photo</p>
-          <div style={{ width: '100%', aspectRatio: '1 / 1', borderRadius: '6px', overflow: 'hidden', border: `1px solid ${GRAY.border}`, marginBottom: '6px' }}>
-            <img src={photoPreview} alt="Your uploaded photo" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-          </div>
-          <button type="button" disabled={!!photoBusy} onClick={() => commitPhoto('original')} style={{ ...btn('#374151', !!photoBusy), width: '100%', marginBottom: '6px' }}>
-            {photoBusy === 'committing' ? 'Saving…' : '↑ Use My Uploaded Photo'}
-          </button>
-          <p style={{ fontSize: '11px', color: GRAY.text, textAlign: 'center', marginBottom: '1.25rem' }}>Shown in the square crop used on your profile.</p>
-
-          {aiPreviewUrl ? (
-            <>
-              <p style={{ fontSize: '12px', color: NSSA.dark, fontWeight: 600, marginBottom: '8px', textAlign: 'center' }}>
-                AI headshot preview {aiGenCount > 1 ? `(version ${aiGenCount})` : ''}
-              </p>
-              <div style={{ width: '100%', aspectRatio: '1 / 1', borderRadius: '6px', overflow: 'hidden', border: `2px solid ${NSSA.light}`, marginBottom: '6px' }}>
-                <img src={aiPreviewUrl} alt="AI headshot preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          <div style={{ display: 'grid', gridTemplateColumns: aiPreviewUrl ? '1fr 1fr' : '1fr', gap: '1rem', alignItems: 'start' }}>
+            {/* Uploaded photo */}
+            <div>
+              <p style={{ fontSize: '12px', color: '#374151', fontWeight: 600, marginBottom: '8px', textAlign: 'center' }}>Your uploaded photo</p>
+              <div style={{ width: '100%', aspectRatio: '1 / 1', borderRadius: '6px', overflow: 'hidden', border: `1px solid ${GRAY.border}`, marginBottom: '6px' }}>
+                <img src={photoPreview} alt="Your uploaded photo" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
               </div>
-              <button type="button" disabled={!!photoBusy} onClick={() => commitPhoto('ai')} style={{ ...btn(NSSA.dark, !!photoBusy), width: '100%', marginBottom: '6px' }}>
-                {photoBusy === 'committing' ? 'Saving…' : '✓ Use This AI Photo'}
+              <button type="button" disabled={!!photoBusy} onClick={() => commitPhoto('original')} style={{ ...btn('#374151', !!photoBusy), width: '100%' }}>
+                {photoBusy === 'committing' ? 'Saving…' : '↑ Use My Uploaded Photo'}
               </button>
-              {!aiLimitReached && (
-                <button type="button" disabled={!!photoBusy} onClick={generatePreview} style={{ ...btn(NSSA.medium, !!photoBusy), width: '100%' }}>
-                  {photoBusy === 'generating' ? 'Generating…' : `✦ Regenerate (${aiGenCount} of ${AI_GEN_LIMIT} used)`}
+            </div>
+
+            {/* AI preview (only once generated) */}
+            {aiPreviewUrl && (
+              <div>
+                <p style={{ fontSize: '12px', color: NSSA.dark, fontWeight: 600, marginBottom: '8px', textAlign: 'center' }}>
+                  AI preview {aiGenCount > 1 ? `(v${aiGenCount})` : ''}
+                </p>
+                <div style={{ width: '100%', aspectRatio: '1 / 1', borderRadius: '6px', overflow: 'hidden', border: `2px solid ${NSSA.light}`, marginBottom: '6px' }}>
+                  <img src={aiPreviewUrl} alt="AI headshot preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                </div>
+                <button type="button" disabled={!!photoBusy} onClick={() => commitPhoto('ai')} style={{ ...btn(NSSA.dark, !!photoBusy), width: '100%', marginBottom: '6px' }}>
+                  {photoBusy === 'committing' ? 'Saving…' : '✓ Use This AI Photo'}
                 </button>
-              )}
-              <p style={{ fontSize: '11px', color: GRAY.text, textAlign: 'center', marginTop: '6px' }}>Not saved yet — choose an option above.</p>
-            </>
-          ) : (
-            !aiLimitReached && (
-              <button type="button" disabled={!!photoBusy} onClick={generatePreview} style={{ ...btn(NSSA.dark, !!photoBusy), width: '100%' }}>
-                {photoBusy === 'generating' ? 'Generating…' : '✦ Enhance with AI'}
-              </button>
-            )
+                {!aiLimitReached && (
+                  <button type="button" disabled={!!photoBusy} onClick={generatePreview} style={{ ...btn(NSSA.medium, !!photoBusy), width: '100%' }}>
+                    {photoBusy === 'generating' ? 'Generating…' : `✦ Regenerate (${aiGenCount} of ${AI_GEN_LIMIT})`}
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+
+          <p style={{ fontSize: '11px', color: GRAY.text, textAlign: 'center', margin: '8px 0 1rem' }}>Shown in the square crop used on your profile.</p>
+
+          {/* First-time Enhance button (before any AI preview exists) */}
+          {!aiPreviewUrl && !aiLimitReached && (
+            <button type="button" disabled={!!photoBusy} onClick={generatePreview} style={{ ...btn(NSSA.dark, !!photoBusy), width: '100%' }}>
+              {photoBusy === 'generating' ? 'Generating…' : '✦ Enhance with AI'}
+            </button>
+          )}
+
+          {/* Likeness warning whenever an AI preview is shown */}
+          {aiPreviewUrl && (
+            <div style={{ marginTop: '6px', padding: '10px 12px', background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: '6px', fontSize: '12px', color: '#9a3412', lineHeight: 1.5 }}>
+              <strong>Check the AI photo carefully.</strong> AI can sometimes change a face. Only use it if it clearly looks like you — otherwise use your uploaded photo or regenerate.
+            </div>
           )}
 
           {!aiLimitReached ? (
             <p style={{ fontSize: '11px', color: GRAY.text, marginTop: '8px', lineHeight: 1.4 }}>
-              <strong>Enhance with AI</strong> creates a polished professional headshot — new background and attire, with only light, natural touch-ups to your face. Nothing is saved until you pick an option.
+              <strong>Enhance with AI</strong> creates a polished professional headshot — new background and attire, with only light touch-ups to your face. Nothing is saved until you pick an option.
             </p>
           ) : (
             <div style={{ marginTop: '10px', padding: '10px 12px', background: GRAY.bg, border: `1px solid ${GRAY.border}`, borderRadius: '6px', fontSize: '12px', color: GRAY.text, lineHeight: 1.5 }}>
-              You’ve used all {AI_GEN_LIMIT} AI attempts for this session. Choose <strong>Use This AI Photo</strong> to keep the current AI version, or <strong>Use My Uploaded Photo</strong> above.
+              You’ve used all {AI_GEN_LIMIT} AI attempts for this session. Choose <strong>Use This AI Photo</strong> (if it looks like you) or <strong>Use My Uploaded Photo</strong>.
             </div>
           )}
         </div>
@@ -778,12 +802,27 @@ function BuildWizard({ member, userEmail, certLabel }) {
         <div>
           <h2 style={{ fontSize: '18px', color: NSSA.dark, marginBottom: '1.25rem' }}>How can clients reach you?</h2>
           <div style={twoCol}>
-            <Field label="Office Phone" name="phone"        value={form.phone}        onChange={update} placeholder="(555) 555-5555" type="tel" />
-            <Field label="Mobile Phone" name="mobile_phone" value={form.mobile_phone} onChange={update} placeholder="(555) 555-5555" type="tel" />
+            <Field label="Office Phone" name="phone"        value={form.phone}        onChange={update} placeholder="(555) 555-5555" type="tel"
+              hint="This is the number clients will see and use to reach you. It appears on your public profile." />
+            <Field label="Mobile Phone" name="mobile_phone" value={form.mobile_phone} onChange={update} placeholder="(555) 555-5555" type="tel"
+              hint="For NSSA internal use only. Never shown publicly and never shared with anyone." />
+          </div>
+          <div style={{ marginBottom: '1.25rem', padding: '10px 12px', background: '#eff6ff', border: `1px solid ${NSSA.light}`, borderRadius: '6px', fontSize: '12px', color: NSSA.dark, lineHeight: 1.5 }}>
+            <strong>Your office phone is public</strong> — it's how clients get in touch. <strong>Your mobile phone is private</strong>, used only by NSSA to reach you, and is never displayed or shared.
           </div>
           <div style={twoCol}>
             <Field label="Website"  name="website"      value={form.website}      onChange={update} placeholder="https://yoursite.com" type="url" />
-            <Field label="LinkedIn" name="linkedin_url" value={form.linkedin_url} onChange={update} placeholder="https://linkedin.com/in/you" type="url" hint="Paste your full LinkedIn profile URL." />
+            <Field label="LinkedIn" name="linkedin_url" value={form.linkedin_url} onChange={update} placeholder="https://www.linkedin.com/in/your-name" type="url" />
+          </div>
+          <div style={{ padding: '10px 12px', background: GRAY.bg, border: `1px solid ${GRAY.border}`, borderRadius: '6px', fontSize: '12px', color: '#374151', lineHeight: 1.6 }}>
+            <strong>How to find your LinkedIn link:</strong>
+            <div style={{ marginTop: '4px' }}>
+              <strong>On a computer:</strong> Go to LinkedIn, click your photo (top right) → <em>View Profile</em>. Then look at the web address bar at the very top of your browser — copy that whole address (it looks like <em>linkedin.com/in/your-name</em>) and paste it above.
+            </div>
+            <div style={{ marginTop: '4px' }}>
+              <strong>On your phone (LinkedIn app):</strong> Tap your photo → <em>View Profile</em> → tap the <em>•••</em> (three dots) → <em>Copy profile URL</em>, then paste it above.
+            </div>
+            <div style={{ marginTop: '4px', color: GRAY.text }}>Don't have one or not sure? You can leave this blank.</div>
           </div>
         </div>
       )}
@@ -857,7 +896,7 @@ function BuildWizard({ member, userEmail, certLabel }) {
           <p style={{ fontSize: '13px', color: GRAY.text, marginBottom: '1.25rem', lineHeight: 1.6 }}>
             A professional photo helps clients connect with you. It's recommended but optional — you can add or change it anytime.
           </p>
-          <div style={{ maxWidth: '300px' }}>
+          <div style={{ maxWidth: '440px' }}>
             <PhotoPanel
               userEmail={userEmail}
               initialPhoto={member.profile_photo || null}
