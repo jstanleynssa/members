@@ -1,5 +1,6 @@
 import { createServerSupabaseClient } from '@supabase/auth-helpers-nextjs'
 import { createClient } from '@supabase/supabase-js'
+import { slugForMember, revalidateDirectorySlugs } from '../../lib/revalidateDirectory'
 
 // Normalize a user-entered URL: accept bare domains ("www.site.com",
 // "site.com") and prepend https:// so the stored value is a valid link.
@@ -40,6 +41,19 @@ export default async function handler(req, res) {
   const targetEmail =
     isAdmin && req.body.email ? req.body.email : session.user.email
 
+  // Capture the advisor's CURRENT slug before the update — if they changed
+  // their name/city/state, the slug changes and the OLD page must also be
+  // revalidated (otherwise the stale URL lingers).
+  let oldSlug = ''
+  try {
+    const { data: prev } = await supabaseAdmin
+      .from('members')
+      .select('first_name, last_name, city, state')
+      .eq('email', targetEmail)
+      .single()
+    if (prev) oldSlug = slugForMember(prev)
+  } catch { /* non-fatal; we'll still revalidate the new slug */ }
+
   const { error } = await supabaseAdmin
     .from('members')
     .update({
@@ -53,5 +67,11 @@ export default async function handler(req, res) {
     .eq('email', targetEmail)
 
   if (error) return res.status(500).json({ error: error.message })
+
+  // Revalidate the directory page(s) on-demand so the public profile updates
+  // within seconds. Best-effort — never blocks or fails the save.
+  const newSlug = slugForMember({ first_name, last_name, city, state })
+  await revalidateDirectorySlugs([oldSlug, newSlug])
+
   return res.status(200).json({ ok: true })
 }
