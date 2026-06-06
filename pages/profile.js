@@ -331,7 +331,7 @@ function PhotoPanel({ userEmail, initialPhoto = null, onPhotoSaved, variant = 's
             <div>
               <p style={{ fontSize: '11px', color: '#374151', fontWeight: 600, marginBottom: '6px', textAlign: 'center' }}>Your photo</p>
               <div style={{ width: '100%', aspectRatio: '1 / 1', borderRadius: '6px', overflow: 'hidden', border: `1px solid ${GRAY.border}`, marginBottom: '6px' }}>
-                <img src={photoPreview} alt="Your uploaded photo" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                <img src={photoPreview} alt="Your uploaded photo" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top' }} />
               </div>
               <button type="button" disabled={!!photoBusy} onClick={() => commitPhoto('original')} style={{ ...btn('#374151', !!photoBusy), width: '100%', padding: '8px 6px', fontSize: '12px' }}>
                 {photoBusy === 'committing' ? 'Saving…' : 'Use This'}
@@ -343,7 +343,7 @@ function PhotoPanel({ userEmail, initialPhoto = null, onPhotoSaved, variant = 's
               <div key={url}>
                 <p style={{ fontSize: '11px', color: NSSA.dark, fontWeight: 600, marginBottom: '6px', textAlign: 'center' }}>AI v{i + 1}</p>
                 <div style={{ width: '100%', aspectRatio: '1 / 1', borderRadius: '6px', overflow: 'hidden', border: `2px solid ${NSSA.light}`, marginBottom: '6px' }}>
-                  <img src={url} alt={`AI headshot version ${i + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  <img src={url} alt={`AI headshot version ${i + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top' }} />
                 </div>
                 <button type="button" disabled={!!photoBusy} onClick={() => commitPhoto('ai', url)} style={{ ...btn(NSSA.dark, !!photoBusy), width: '100%', padding: '8px 6px', fontSize: '12px' }}>
                   {photoBusy === 'committing' ? 'Saving…' : 'Use This'}
@@ -926,7 +926,7 @@ function BuildWizard({ member, userEmail, certLabel }) {
           </p>
           <div style={{ display: 'grid', gridTemplateColumns: currentPhoto ? '120px 1fr' : '1fr', gap: '1.5rem', alignItems: 'start' }}>
             {currentPhoto && (
-              <img src={currentPhoto} alt="Your profile photo" style={{ width: '120px', height: '120px', objectFit: 'cover', borderRadius: '8px', border: `1px solid ${GRAY.border}` }} />
+              <img src={currentPhoto} alt="Your profile photo" style={{ width: '120px', height: '120px', objectFit: 'cover', objectPosition: 'top', borderRadius: '8px', border: `1px solid ${GRAY.border}` }} />
             )}
             <div style={{ fontSize: '14px', color: '#374151', lineHeight: 1.9 }}>
               <div><strong>Name:</strong> {form.first_name} {form.last_name}</div>
