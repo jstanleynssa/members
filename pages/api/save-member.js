@@ -1,5 +1,6 @@
 import { createServerSupabaseClient } from '@supabase/auth-helpers-nextjs'
 import { createClient } from '@supabase/supabase-js'
+import { slugForMember, revalidateDirectorySlugs } from '../../lib/revalidateDirectory'
 
 // Normalize a user-entered URL: accept bare domains and prepend https://.
 // Empty stays empty; unparseable values pass through untouched.
@@ -34,6 +35,18 @@ export default async function handler(req, res) {
 
   if (!email) return res.status(400).json({ error: 'Missing email' })
 
+  // Capture current slug before update so a name/city/state change also
+  // revalidates the old (now-stale) page.
+  let oldSlug = ''
+  try {
+    const { data: prev } = await supabaseAdmin
+      .from('members')
+      .select('first_name, last_name, city, state')
+      .eq('email', email)
+      .single()
+    if (prev) oldSlug = slugForMember(prev)
+  } catch { /* non-fatal */ }
+
   const { error } = await supabaseAdmin
     .from('members')
     .update({
@@ -45,6 +58,10 @@ export default async function handler(req, res) {
     .eq('email', email)
 
   if (error) return res.status(500).json({ error: error.message })
+
+  // On-demand revalidate the public directory page(s). Best-effort.
+  const newSlug = slugForMember({ first_name, last_name, city, state })
+  await revalidateDirectorySlugs([oldSlug, newSlug])
 
   return res.status(200).json({ ok: true })
 }
