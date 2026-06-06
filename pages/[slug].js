@@ -3,9 +3,10 @@
 // One pre-built HTML page per certified advisor who has a bio.
 
 import Head from 'next/head'
-import { useState } from 'react'
+import React, { useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
-import { buildSlugIndex } from '../lib/slug'
+import { buildSlugIndex, stateToken } from '../lib/slug'
+import { STATE_NAMES, stateNameToSlug } from '../lib/geo'
 
 const NSSA  = { light: '#8ECAEE', medium: '#1C80BC', dark: '#13405E' }
 const IRMAA = { light: '#ED8E8E', medium: '#DE5B63', dark: '#AF2A35' }
@@ -13,6 +14,87 @@ const GRAY  = { text: '#6b7280', bg: '#f3f4f6', border: '#e5e7eb', dark: '#1f293
 const TAN    = '#b3a584'
 const SITE   = 'https://directory.nssapros.com'
 const ROOT   = 'https://nssapros.com'
+
+// Product/training pages we want to pass internal link equity to.
+const NSSA_COURSE  = 'https://www.nssapros.com/social-security-training'
+const IRMAA_COURSE = 'https://www.nssapros.com/irmaa-medicare-training-course'
+
+// Varied anchor phrasings per cert (avoids identical anchors across ~700 pages).
+const NSSA_ANCHORS = [
+  'National Social Security Advisor (NSSA®) certification',
+  'NSSA® Social Security certification',
+  'National Social Security Advisor program',
+  'NSSA® designation in Social Security planning',
+]
+const IRMAA_ANCHORS = [
+  'IRMAA Certified Planner (IRMAACP™) program',
+  'IRMAACP™ Medicare & IRMAA certification',
+  'IRMAA Certified Planner designation',
+  'IRMAACP™ training in Medicare planning',
+]
+// Sentence frames; {NSSA} / {IRMAA} are replaced with the linked anchors.
+// {NAME} with the advisor's name. Picked deterministically per advisor.
+const BOTH_FRAMES = [
+  'As a certified professional, {NAME} has completed the {NSSA} and the {IRMAA}, bringing specialized expertise in Social Security and Medicare planning to clients.',
+  '{NAME} holds both the {NSSA} and the {IRMAA}, reflecting advanced training in retirement income and Medicare cost planning.',
+  'Having earned the {NSSA} and the {IRMAA}, {NAME} is equipped to guide clients through complex Social Security and Medicare decisions.',
+]
+const NSSA_FRAMES = [
+  '{NAME} has earned the {NSSA}, demonstrating advanced expertise in Social Security claiming strategies.',
+  'As a holder of the {NSSA}, {NAME} brings specialized knowledge of Social Security planning to every client relationship.',
+]
+const IRMAA_FRAMES = [
+  '{NAME} has completed the {IRMAA}, with focused expertise in Medicare and income-related premium planning.',
+  'As an {IRMAA} holder, {NAME} helps clients navigate Medicare costs and IRMAA surcharges with confidence.',
+]
+
+// ── H1 role phrasing ────────────────────────────────────────────────────────
+// Short, varied, cert-adaptive role lines for the H1. Lead with the advisor's
+// name elsewhere; these are the role half. Deliberately AVOID "expert" (legal/
+// compliance); use specialist / consultant / advisor / professional / planner.
+// {TOPIC} is replaced with the cert-adaptive subject.
+const ROLE_NOUNS = ['Specialist', 'Consultant', 'Advisor', 'Professional', 'Planner']
+// Cert-adaptive subject phrase.
+function topicForCerts(hasNssa, hasIrmaa) {
+  if (hasNssa && hasIrmaa) return 'Social Security & Medicare'
+  if (hasNssa) return 'Social Security'
+  if (hasIrmaa) return 'Medicare & IRMAA'
+  return 'Retirement'
+}
+// Role-line frames. {TOPIC} = subject, {NOUN} = role noun, {TITLE} = job title.
+// Frames without {TITLE} are always safe; {TITLE} frames are used only when a
+// job title exists.
+const ROLE_FRAMES_NOTITLE = [
+  '{TOPIC} {NOUN}',
+  '{TOPIC} Planning {NOUN}',
+  'Certified {TOPIC} {NOUN}',
+]
+const ROLE_FRAMES_TITLE = [
+  '{TITLE} & {TOPIC} {NOUN}',
+  '{TITLE} Specializing in {TOPIC}',
+]
+
+// Stable per-advisor index from a string (email), so phrasing is varied across
+// advisors but constant for a given advisor across rebuilds.
+function stableIndex(seed, mod) {
+  let h = 0
+  const s = String(seed || '')
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0
+  return h % mod
+}
+
+// Generic gray silhouette for advisors with no headshot (or a broken image URL).
+function HeadshotSilhouette() {
+  return (
+    <div style={{ width: '100%', aspectRatio: '280 / 294', background: '#e2e5ea', borderRadius: '4px', overflow: 'hidden', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }} aria-hidden="true">
+      <svg viewBox="0 0 64 64" width="70%" height="70%" style={{ display: 'block' }}>
+        <circle cx="32" cy="23" r="13" fill="#b9bec7" />
+        <path d="M8 64c0-14 11-23 24-23s24 9 24 23z" fill="#b9bec7" />
+      </svg>
+    </div>
+  )
+}
+
 
 // ── Build-time data ─────────────────────────────────────────────────────────
 function admin() {
@@ -52,24 +134,14 @@ export async function getStaticPaths() {
   const members = await fetchDirectoryMembers()
   const { byEmail } = buildSlugIndex(members)
 
-  // ── POC SCOPE ─────────────────────────────────────────────────────────────
-  // Only pre-build a small hardcoded test set so we can validate the template
-  // across edge cases (messy title, single vs dual badge, missing website)
-  // without generating all ~1,700 pages. To go full directory later, delete
-  // this block and use: const paths = [...byEmail.values()].map(...)
-  const POC_EMAILS = [
-    'jason@dancing-tree.org',     // your test profile (dual cert)
-    'jstanley@nssapros.com',      // admin / dual cert
-    // add a few more real test advisors here as needed, e.g.:
-    // 'joy@jkinginsurance.com',  // single-cert + messy title example
-  ]
-  const paths = POC_EMAILS
-    .filter(email => byEmail.has(email))
-    .map(email => ({ params: { slug: byEmail.get(email) } }))
+  // ── FULL DIRECTORY BUILD ────────────────────────────────────────────────
+  // Pre-build a page for every advisor who passes the inclusion gate
+  // (active + certified + non-empty bio), enforced in fetchDirectoryMembers().
+  const paths = [...byEmail.values()].map(slug => ({ params: { slug } }))
   // ──────────────────────────────────────────────────────────────────────────
 
-  // fallback:'blocking' means any other advisor URL still renders on-demand
-  // (and gets cached) if visited directly — but only the POC set is prebuilt.
+  // fallback:'blocking' still renders any not-yet-built slug on demand (e.g. a
+  // newly-certified advisor before the next rebuild), then caches it.
   return { paths, fallback: 'blocking' }
 }
 
@@ -105,6 +177,15 @@ function cleanWebsite(url) { return (url || '').replace(/^https?:\/\//, '').repl
 function websiteHref(url) {
   if (!url) return null
   return /^https?:\/\//.test(url) ? url : `https://${url}`
+}
+
+// Truncate to a max length on a word boundary, adding an ellipsis if cut.
+function truncateAtWord(str, max) {
+  const s = (str || '').trim()
+  if (s.length <= max) return s
+  const cut = s.slice(0, max)
+  const lastSpace = cut.lastIndexOf(' ')
+  return (lastSpace > 0 ? cut.slice(0, lastSpace) : cut).replace(/[,;:.\s]+$/, '') + '…'
 }
 
 // ── Contact form (client) ───────────────────────────────────────────────────
@@ -194,13 +275,115 @@ export default function AdvisorProfile({ member, slug }) {
   const phone = member.phone || member.mobile_phone || ''
   const web = websiteHref(member.website)
 
-  // SEO title/H1 — use stored directory fields when present, else sensible defaults.
-  const pageTitle = member.directory_page_title
-    || `${name}${member.city ? `, ${member.city}` : ''}${member.state ? `, ${member.state}` : ''} — NSSA® & IRMAACP™ Certified Advisor`
-  const h1 = member.directory_h1 || 'NSSA® and IRMAA Certified Planner™'
+  // ── SEO title / H1 / meta ───────────────────────────────────────────────
+  // Stored directory_* fields are AI-generated bulk defaults, so the template
+  // cleans them and enforces length limits. (When a `seo_reviewed` flag is
+  // later added, wrap this cleanup in `if (!member.seo_reviewed)` and honor
+  // the stored values verbatim when true.)
+
+  // Deterministic per-advisor seed (stable across rebuilds, varied across advisors).
+  const seed = member.email || slug
+
+  // Build a SHORT, VARIED role line for the H1. Leads with the advisor name
+  // (added below). Cert-adaptive subject; rotates role nouns; weaves in the job
+  // title when one exists and the result stays reasonably short. Avoids "expert".
+  const topic = topicForCerts(hasNssa, hasIrmaa)
+  const roleNoun = ROLE_NOUNS[stableIndex(seed + 'rn', ROLE_NOUNS.length)]
+  const jobTitle = (member.job_title || '').trim()
+  function buildRoleLine() {
+    const fill = (f) => f
+      .replace('{TOPIC}', topic)
+      .replace('{NOUN}', roleNoun)
+      .replace('{TITLE}', jobTitle)
+    // Prefer a title-based frame when a concise job title exists (keeps H1 short).
+    if (jobTitle && jobTitle.length <= 26) {
+      const f = ROLE_FRAMES_TITLE[stableIndex(seed + 'rf', ROLE_FRAMES_TITLE.length)]
+      const line = fill(f)
+      if (`${name}, ${line}`.length <= 58) return line
+    }
+    const nf = ROLE_FRAMES_NOTITLE[stableIndex(seed + 'rn2', ROLE_FRAMES_NOTITLE.length)]
+    return fill(nf)
+  }
+  const roleLine = buildRoleLine()
+
+  // H1 — e.g. "Joy Cheney, Social Security Planning Specialist"
+  const h1 = `${name}, ${roleLine}`
+
+  // ── Breadcrumb: United States > State > Advisor ─────────────────────────
+  // State links to the (future) state landing page /advisors/<state-slug>.
+  const stCode = stateToken(member.state).toUpperCase()
+  const stName = STATE_NAMES[stCode] || member.state || ''
+  const stSlug = stName ? stateNameToSlug(stName) : ''
+  const breadcrumbs = [
+    { label: 'United States', href: SITE + '/' },
+    ...(stName && stSlug ? [{ label: stName, href: `${SITE}/advisors/${stSlug}` }] : []),
+    { label: name, href: null }, // current page
+  ]
+
+  // Page title ≤ 60 chars. Prefer name + role + location; trim gracefully.
+  function buildTitle() {
+    const loc = (member.city && member.state) ? ` in ${member.city}, ${stateToken(member.state).toUpperCase()}` : ''
+    const full = `${name}, ${roleLine}${loc}`
+    if (full.length <= 60) return full
+    const noLoc = `${name}, ${roleLine}`
+    if (noLoc.length <= 60) return noLoc
+    return truncateAtWord(noLoc, 60)
+  }
+  const pageTitle = buildTitle()
+
+  // Meta description ≤ 155 chars, word-boundary truncated.
   const metaDesc = paragraphs[0]
-    ? paragraphs[0].slice(0, 155)
-    : `${name} is an NSSA® and IRMAACP™ certified advisor${member.city ? ` in ${member.city}, ${member.state}` : ''}.`
+    ? truncateAtWord(paragraphs[0], 155)
+    : truncateAtWord(`${name} is a ${roleLine.toLowerCase()}${member.city ? ` based in ${member.city}, ${stateToken(member.state).toUpperCase()}` : ''}, helping clients with Social Security and Medicare planning.`, 155)
+
+  // ── Credibility line: contextual, followed links to the training pages ──
+  // Deterministic per advisor (stable across rebuilds), varied across advisors.
+  const nssaAnchor = NSSA_ANCHORS[stableIndex(seed + 'n', NSSA_ANCHORS.length)]
+  const irmaaAnchor = IRMAA_ANCHORS[stableIndex(seed + 'i', IRMAA_ANCHORS.length)]
+  const linkStyle = { color: NSSA.medium, textDecoration: 'underline' }
+  const nssaLink = <a key="nl" href={NSSA_COURSE} style={linkStyle}>{nssaAnchor}</a>
+  const irmaaLink = <a key="il" href={IRMAA_COURSE} style={{ ...linkStyle, color: IRMAA.medium }}>{irmaaAnchor}</a>
+
+  let credFrame = null
+  if (hasNssa && hasIrmaa) credFrame = BOTH_FRAMES[stableIndex(seed, BOTH_FRAMES.length)]
+  else if (hasNssa)        credFrame = NSSA_FRAMES[stableIndex(seed, NSSA_FRAMES.length)]
+  else if (hasIrmaa)       credFrame = IRMAA_FRAMES[stableIndex(seed, IRMAA_FRAMES.length)]
+
+  // Split the chosen frame on tokens and interleave the linked anchors.
+  const credLine = credFrame ? (
+    <p key="credline" style={{ fontSize: '16px', color: '#374151', lineHeight: 1.75, marginBottom: '1.1rem' }}>
+      {credFrame.split(/(\{NAME\}|\{NSSA\}|\{IRMAA\})/).map((part, i) => {
+        if (part === '{NAME}') return <span key={i}>{name}</span>
+        if (part === '{NSSA}') return <span key={i}>{nssaLink}</span>
+        if (part === '{IRMAA}') return <span key={i}>{irmaaLink}</span>
+        return <span key={i}>{part}</span>
+      })}
+    </p>
+  ) : null
+
+  // Vary WHERE the credibility line lands among the bio paragraphs.
+  // Google weights links in the opening/middle higher than trailing ones, so
+  // we bias toward early slots. "Insert after paragraph N" where N is chosen
+  // deterministically per advisor. Slot 0 = after the 1st paragraph.
+  // Pool is weighted toward 0/1 (early) so most links sit high in the content.
+  const nPara = paragraphs.length
+  let credInsertAfter = 0
+  if (nPara >= 2) {
+    // candidate positions, weighted toward the front (after para 1 or 2)
+    const slots = nPara >= 4 ? [0, 0, 1, 1, 2] : nPara === 3 ? [0, 0, 1] : [0]
+    credInsertAfter = slots[stableIndex(seed + 'pos', slots.length)]
+  }
+
+
+  // Descriptive alt for the headshot — frames it as a photo description
+  // (accessibility best practice) while keeping name/role/company/location
+  // for image-search discoverability.
+  const photoAlt = [
+    `A professional headshot of ${name}`,
+    member.job_title ? `, ${member.job_title}` : '',
+    member.company ? ` of ${member.company}` : '',
+    (member.city && member.state) ? ` in ${member.city}, ${stateToken(member.state).toUpperCase()}` : '',
+  ].join('')
 
   // Schema.org Person structured data
   const certs = []
@@ -224,7 +407,41 @@ export default function AdvisorProfile({ member, slug }) {
       addressCountry: 'US',
     } : undefined,
     hasCredential: certs.map(c => ({ '@type': 'EducationalOccupationalCredential', name: c })),
-    sameAs: [member.linkedin_url, web].filter(Boolean),
+    sameAs: [member.linkedin_url ? websiteHref(member.linkedin_url) : null, web].filter(Boolean),
+  }
+
+  // LocalBusiness (FinancialService) schema — only when we have a real address.
+  // Pairs with Person to support local "advisor near me" rich results.
+  const hasAddress = !!(member.address && (member.city || member.state))
+  const localBusinessSchema = hasAddress ? {
+    '@context': 'https://schema.org',
+    '@type': 'FinancialService',
+    name: member.company || name,
+    image: member.profile_photo || undefined,
+    url: canonical,
+    telephone: phone || undefined,
+    address: {
+      '@type': 'PostalAddress',
+      streetAddress: member.address,
+      addressLocality: member.city || undefined,
+      addressRegion: member.state || undefined,
+      postalCode: member.zip || undefined,
+      addressCountry: 'US',
+    },
+    employee: { '@type': 'Person', name, jobTitle: member.job_title || undefined },
+    sameAs: [member.linkedin_url ? websiteHref(member.linkedin_url) : null, web].filter(Boolean),
+  } : null
+
+  // BreadcrumbList schema (United States > State > Advisor) for rich results.
+  const breadcrumbSchema = {
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: breadcrumbs.map((b, i) => ({
+      '@type': 'ListItem',
+      position: i + 1,
+      name: b.label,
+      ...(b.href ? { item: b.href } : {}),
+    })),
   }
 
   const pillBtn = {
@@ -241,31 +458,61 @@ export default function AdvisorProfile({ member, slug }) {
         <meta name="description" content={metaDesc} />
         <link rel="canonical" href={canonical} />
         <meta property="og:type" content="profile" />
+        <meta property="og:site_name" content="NSSA® Advisor Directory" />
         <meta property="og:title" content={pageTitle} />
         <meta property="og:description" content={metaDesc} />
         <meta property="og:url" content={canonical} />
         {member.profile_photo && <meta property="og:image" content={member.profile_photo} />}
+        {member.profile_photo && <meta property="og:image:alt" content={photoAlt} />}
         <meta name="twitter:card" content="summary_large_image" />
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(personSchema) }}
         />
+        {localBusinessSchema && (
+          <script
+            type="application/ld+json"
+            dangerouslySetInnerHTML={{ __html: JSON.stringify(localBusinessSchema) }}
+          />
+        )}
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbSchema) }}
+        />
       </Head>
 
-      <div style={{ fontFamily: 'system-ui, -apple-system, sans-serif', color: GRAY.dark }}>
+      <style>{`
+        @media (max-width: 860px) {
+          .hero-grid { grid-template-columns: 1fr !important; gap: 1.5rem !important; }
+          .hero-grid .headshot-col { max-width: 280px; margin: 0 auto; }
+          .body-grid { grid-template-columns: 1fr !important; gap: 2rem !important; }
+          .valueprop-grid { grid-template-columns: 1fr !important; gap: 1.75rem !important; }
+          .site-nav { display: none !important; }
+          .page-h1 { font-size: 1.6rem !important; }
+          .section-pad { padding: 2rem 1.25rem !important; }
+        }
+        @media (min-width: 861px) and (max-width: 1024px) {
+          .hero-grid { grid-template-columns: 220px 1fr !important; }
+          .hero-grid .actions-col { grid-column: 1 / -1; display: flex; gap: 12px; flex-wrap: wrap; }
+          .hero-grid .actions-col a { flex: 1 1 auto; }
+          .body-grid { grid-template-columns: 1fr 340px !important; }
+          .valueprop-grid { grid-template-columns: 1fr 1fr !important; }
+        }
+      `}</style>
+
+      <div style={{ fontFamily: '"Open Sans", system-ui, -apple-system, sans-serif', color: GRAY.dark }}>
 
         {/* Top nav — mirrors the Kajabi site so the page feels continuous */}
         <header style={{ background: 'white', borderBottom: `1px solid ${GRAY.border}`, padding: '1rem 2rem' }}>
           <div style={{ maxWidth: '1200px', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <a href={ROOT}><img src="/nssa-logo.png" alt="National Social Security Advisors" style={{ height: '44px', width: 'auto' }} /></a>
-            <nav style={{ display: 'flex', gap: '26px', alignItems: 'center', fontSize: '15px' }}>
+            <nav className="site-nav" style={{ display: 'flex', gap: '26px', alignItems: 'center', fontSize: '15px' }}>
               {[
                 ['About Us', `${ROOT}/about`],
-                ['Social Security Training', `${ROOT}/nssa-course`],
-                ['IRMAA Medicare Training', `${ROOT}/irmaa-course`],
-                ['Find an Advisor', `${ROOT}/find-an-advisor`],
+                ['Social Security Training', NSSA_COURSE],
+                ['IRMAA Medicare Training', IRMAA_COURSE],
+                ['Find an Advisor', `${SITE}/`],
                 ['Contact Us', `${ROOT}/contact`],
-                ['Ask a Question', `${ROOT}/ask`],
               ].map(([label, href]) => (
                 <a key={label} href={href} style={{ color: GRAY.dark, textDecoration: 'none' }}>{label}</a>
               ))}
@@ -274,58 +521,99 @@ export default function AdvisorProfile({ member, slug }) {
         </header>
 
         {/* Hero */}
-        <section style={{ background: GRAY.bg, padding: '3rem 2rem' }}>
+        <section className="section-pad" style={{ background: GRAY.bg, padding: '3rem 2rem' }}>
           <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
-            <h1 style={{ fontSize: '2.4rem', fontWeight: 800, color: IRMAA.dark, marginBottom: '2rem' }}>{h1}</h1>
-            <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr 280px', gap: '2.5rem', alignItems: 'start' }}>
+            <h1 className="page-h1" style={{ fontSize: '2.4rem', fontWeight: 700, color: IRMAA.dark, marginBottom: '2rem' }}>{h1}</h1>
+            <div className="hero-grid" style={{ display: 'grid', gridTemplateColumns: '280px 1fr 280px', gap: '2.5rem', alignItems: 'start' }}>
 
               {/* Photo */}
-              <div>
+              <div className="headshot-col">
                 {member.profile_photo
-                  ? <img src={member.profile_photo} alt={`${name} — ${member.job_title || 'Certified Advisor'}`} style={{ width: '100%', borderRadius: '4px', display: 'block' }} />
-                  : <div style={{ width: '100%', aspectRatio: '1 / 1.15', background: NSSA.dark, borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: '64px', fontWeight: 700 }}>{(fname[0] || '?')}</div>}
+                  ? <>
+                      <img
+                        src={member.profile_photo}
+                        alt={photoAlt}
+                        width="280" height="294"
+                        loading="eager" fetchpriority="high"
+                        style={{ width: '100%', height: 'auto', aspectRatio: '280 / 294', objectFit: 'cover', objectPosition: 'top', borderRadius: '4px', display: 'block' }}
+                        onError={(e) => {
+                          const fb = e.currentTarget.nextElementSibling
+                          e.currentTarget.style.display = 'none'
+                          if (fb) fb.style.display = 'flex'
+                        }}
+                      />
+                      <div style={{ display: 'none', width: '100%', aspectRatio: '280 / 294', background: '#e2e5ea', borderRadius: '4px', overflow: 'hidden', alignItems: 'flex-end', justifyContent: 'center' }} aria-hidden="true">
+                        <svg viewBox="0 0 64 64" width="70%" height="70%" style={{ display: 'block' }}>
+                          <circle cx="32" cy="23" r="13" fill="#b9bec7" />
+                          <path d="M8 64c0-14 11-23 24-23s24 9 24 23z" fill="#b9bec7" />
+                        </svg>
+                      </div>
+                    </>
+                  : <HeadshotSilhouette />}
               </div>
 
               {/* Details */}
               <div>
-                <h2 style={{ fontSize: '1.7rem', fontWeight: 700, marginBottom: '8px' }}>{name}</h2>
-                {member.job_title && <p style={{ fontSize: '17px', color: GRAY.dark, marginBottom: '4px' }}>{member.job_title}</p>}
-                {member.company && <p style={{ fontSize: '15px', color: GRAY.dark, marginBottom: '14px' }}>{member.company}</p>}
-                <div style={{ fontSize: '15px', color: GRAY.dark, lineHeight: 1.7, marginBottom: '14px' }}>
+                <h2 style={{ fontSize: '1.7rem', fontWeight: 700, marginTop: 0, marginBottom: '2px', lineHeight: 1.2 }}>{name}</h2>
+                {(member.job_title || member.company) && (
+                  <p style={{ fontFamily: '"Poppins", system-ui, sans-serif', fontWeight: 400, fontSize: '16px', color: GRAY.dark, marginTop: 0, marginBottom: '18px' }}>
+                    {[member.job_title, member.company].filter(Boolean).join(', ')}
+                  </p>
+                )}
+                <div style={{ fontSize: '15px', color: GRAY.dark, lineHeight: 1.7, marginBottom: '10px' }}>
                   {member.address && <div>{member.address}</div>}
                   {(member.city || member.state) && <div>{[member.city, member.state].filter(Boolean).join(', ')}{member.zip ? ` ${member.zip}` : ''}</div>}
                 </div>
-                {phone && <p style={{ fontSize: '16px', fontWeight: 700, color: NSSA.medium, marginBottom: '16px' }}>{phone}</p>}
+                {phone && <p style={{ fontSize: '16px', marginTop: 0, marginBottom: '4px' }}><a href={`tel:${phone.replace(/[^0-9+]/g, '')}`} style={{ color: NSSA.medium, textDecoration: 'none' }}>{phone}</a></p>}
+                {web && <p style={{ fontSize: '15px', marginTop: 0, marginBottom: '16px' }}><a href={web} target="_blank" rel="nofollow noopener noreferrer" style={{ color: NSSA.medium, textDecoration: 'none' }}>{cleanWebsite(member.website)}</a></p>}
 
-                {/* Cert badges */}
-                <div style={{ display: 'flex', gap: '14px' }}>
-                  {hasNssa && <img src="/nssa-certificate-badge.png" alt={`NSSA® Certified${member.nssa_number ? ` #${member.nssa_number}` : ''}`} style={{ height: '92px', width: 'auto' }} />}
-                  {hasIrmaa && <img src="/irmaa-certificate-badge.png" alt={`IRMAACP™ Certified${member.irmaa_number ? ` #${member.irmaa_number}` : ''}`} style={{ height: '92px', width: 'auto' }} />}
+                {/* Cert badges — linked to the relevant training pages */}
+                <div style={{ display: 'flex', gap: '14px', marginLeft: '-4px' }}>
+                  {hasNssa && <a href={NSSA_COURSE} aria-label="NSSA® Social Security training"><img src="/nssa-certificate-badge.png" alt={`NSSA® Certified${member.nssa_number ? ` #${member.nssa_number}` : ''}`} width="92" height="92" loading="lazy" style={{ height: '92px', width: 'auto', display: 'block' }} /></a>}
+                  {hasIrmaa && <a href={IRMAA_COURSE} aria-label="IRMAACP™ Medicare training"><img src="/irmaa-certificate-badge.png" alt={`IRMAACP™ Certified${member.irmaa_number ? ` #${member.irmaa_number}` : ''}`} width="92" height="92" loading="lazy" style={{ height: '92px', width: 'auto', display: 'block' }} /></a>}
                 </div>
               </div>
 
               {/* Action buttons */}
-              <div>
-                {web && <a href={web} target="_blank" rel="noopener noreferrer" style={pillBtn}>Visit Website</a>}
+              <div className="actions-col">
+                {web && <a href={web} target="_blank" rel="nofollow noopener noreferrer" style={pillBtn}>Visit Website</a>}
                 {phone && <a href={`tel:${phone.replace(/[^0-9+]/g, '')}`} style={pillBtn}>Call {fname}</a>}
                 {member.email && <a href={`mailto:${member.email}`} style={pillBtn}>Email {fname}</a>}
+                {member.linkedin_url && <a href={websiteHref(member.linkedin_url)} target="_blank" rel="nofollow noopener noreferrer" style={pillBtn}>Connect on LinkedIn</a>}
               </div>
             </div>
           </div>
         </section>
 
         {/* Body: Professional Profile + Contact form */}
-        <section style={{ background: 'white', padding: '3.5rem 2rem' }}>
-          <div style={{ maxWidth: '1200px', margin: '0 auto', display: 'grid', gridTemplateColumns: '1fr 420px', gap: '3rem', alignItems: 'start' }}>
+        <section className="section-pad" style={{ background: 'white', padding: '3.5rem 2rem' }}>
+          <div className="body-grid" style={{ maxWidth: '1200px', margin: '0 auto', display: 'grid', gridTemplateColumns: '1fr 420px', gap: '3rem', alignItems: 'start' }}>
 
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '1.5rem' }}>
                 <span style={{ display: 'inline-block', width: '5px', height: '34px', background: GRAY.dark, borderRadius: '2px' }} />
                 <h2 style={{ fontSize: '1.9rem', fontWeight: 800, color: GRAY.dark }}>Professional Profile</h2>
               </div>
+              <nav aria-label="Breadcrumb" style={{ marginBottom: '1.75rem' }}>
+                <ol style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '10px', fontSize: '14px', color: GRAY.text }}>
+                  {breadcrumbs.map((b, i) => (
+                    <li key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: '10px' }}>
+                      {b.href
+                        ? <a href={b.href} style={{ color: NSSA.medium, textDecoration: 'none', fontWeight: 600 }}>{b.label}</a>
+                        : <span aria-current="page" style={{ color: GRAY.text }}>{b.label}</span>}
+                      {i < breadcrumbs.length - 1 && <span style={{ color: GRAY.text, userSelect: 'none', fontWeight: 600 }}>&gt;</span>}
+                    </li>
+                  ))}
+                </ol>
+              </nav>
               {paragraphs.map((p, i) => (
-                <p key={i} style={{ fontSize: '16px', color: '#374151', lineHeight: 1.75, marginBottom: '1.1rem' }}>{p}</p>
+                <React.Fragment key={i}>
+                  <p style={{ fontSize: '16px', color: '#374151', lineHeight: 1.75, marginBottom: '1.1rem' }}>{p}</p>
+                  {credLine && i === credInsertAfter ? credLine : null}
+                </React.Fragment>
               ))}
+              {/* Fallback: if there were no paragraphs, still show the credibility line */}
+              {credLine && paragraphs.length === 0 ? credLine : null}
             </div>
 
             <ContactForm advisorName={name} advisorEmail={member.email} slug={slug} />
@@ -333,19 +621,20 @@ export default function AdvisorProfile({ member, slug }) {
         </section>
 
         {/* Value-prop band — matches the Kajabi "How an NSSA Advisor Will Help You" */}
-        <section style={{ background: '#e7e2d6', padding: '4rem 2rem' }}>
+        <section className="section-pad" style={{ background: '#e7e2d6', padding: '4rem 2rem' }}>
           <div style={{ maxWidth: '1100px', margin: '0 auto', textAlign: 'center' }}>
             <h2 style={{ fontSize: '2rem', fontWeight: 800, color: GRAY.dark, marginBottom: '1rem' }}>How an NSSA® Certified Advisor Will Help You</h2>
             <p style={{ fontSize: '16px', color: GRAY.text, maxWidth: '720px', margin: '0 auto 3rem', lineHeight: 1.6 }}>
               An NSSA® Certified Advisor provides the knowledge and expertise needed to maximize your Social Security benefits and help you achieve a secure retirement.
             </p>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '2.5rem' }}>
+            <div className="valueprop-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '2.5rem' }}>
               {[
-                ['Avoid Costly Social Security Claiming Mistakes', 'Navigating Social Security rules can be complex, and even small mistakes can cost you thousands of dollars in lost benefits. An NSSA® Certified Advisor ensures you make informed decisions and avoid costly errors.'],
-                ['Holistic Retirement Planning', 'An NSSA® Advisor integrates your Social Security strategy with your overall retirement plan, ensuring your assets work together to meet your financial goals and a clearer path to a secure future.'],
-                ['Guidance You Won\u2019t Get from the Social Security Office', 'The Social Security office provides information but doesn\u2019t offer personalized advice or strategies. An NSSA® Certified Advisor delivers tailored solutions based on your unique circumstances and goals.'],
-              ].map(([title, body]) => (
+                ['/social-security-mistakes.png', 'Avoid Costly Social Security Claiming Mistakes', 'Navigating Social Security rules can be complex, and even small mistakes can cost you thousands of dollars in lost benefits. An NSSA® Certified Advisor ensures you make informed decisions and avoid costly errors.'],
+                ['/holistic-financial-planning.png', 'Holistic Retirement Planning', 'An NSSA® Advisor integrates your Social Security strategy with your overall retirement plan, ensuring your assets work together to meet your financial goals and a clearer path to a secure future.'],
+                ['/social-security-guidance.png', 'Guidance You Won\u2019t Get from the Social Security Office', 'The Social Security office provides information but doesn\u2019t offer personalized advice or strategies. An NSSA® Certified Advisor delivers tailored solutions based on your unique circumstances and goals.'],
+              ].map(([icon, title, body]) => (
                 <div key={title}>
+                  <img src={icon} alt="" width="72" height="72" loading="lazy" style={{ width: '72px', height: '72px', objectFit: 'contain', display: 'block', margin: '0 auto 1.25rem' }} />
                   <h3 style={{ fontSize: '1.15rem', fontWeight: 800, color: GRAY.dark, marginBottom: '0.9rem', lineHeight: 1.3 }}>{title}</h3>
                   <p style={{ fontSize: '15px', color: GRAY.text, lineHeight: 1.6 }}>{body}</p>
                 </div>
@@ -355,11 +644,11 @@ export default function AdvisorProfile({ member, slug }) {
         </section>
 
         {/* Footer */}
-        <footer style={{ background: TAN, padding: '1.75rem 2rem' }}>
+        <footer style={{ background: '#6b5e3d', borderTop: `10px solid ${TAN}`, padding: '1.75rem 2rem' }}>
           <div style={{ maxWidth: '1200px', margin: '0 auto', display: 'flex', alignItems: 'center', gap: '2rem', flexWrap: 'wrap' }}>
             <a href={ROOT}><img src="/nssa-logo-white.png" alt="NSSA" style={{ height: '40px', width: 'auto' }} /></a>
             <span style={{ color: 'white', fontSize: '14px' }}>
-              © {new Date().getFullYear()} Social Security Professionals, LLC · 1201 Connecticut Ave NW Ste 531 Washington, DC 20036
+              © {new Date().getFullYear()} Social Security Professionals, LLC · 1763 Columbia Road NW Ste 175 Washington, DC 20009
             </span>
           </div>
         </footer>
