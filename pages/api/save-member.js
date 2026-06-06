@@ -4,6 +4,7 @@ import { slugForMember, revalidateDirectorySlugs } from '../../lib/revalidateDir
 
 // Normalize a user-entered URL: accept bare domains and prepend https://.
 // Empty stays empty; unparseable values pass through untouched.
+// redeploy
 function normalizeUrl(value) {
   if (value == null) return value
   const v = String(value).trim()
