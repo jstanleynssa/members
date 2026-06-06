@@ -1,3 +1,4 @@
+// redeploy
 import { createClient } from '@supabase/supabase-js'
 import { slugForMember, revalidateDirectorySlugs } from '../../lib/revalidateDirectory'
 
