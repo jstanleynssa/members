@@ -297,6 +297,7 @@ function PhotoPanel({ userEmail, initialPhoto = null, onPhotoSaved, variant = 's
         body.imageData = await fileToResizedBase64(selectedFile)
         body.mimeType = 'image/jpeg'
         body.saveOriginal = true
+        body.enhance = false   // use the photo as-is; do NOT run AI enhancement
       }
       const res = await fetch('/api/save-profile-photo', {
         method: 'POST',
