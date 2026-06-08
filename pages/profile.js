@@ -107,20 +107,7 @@ function fileToResizedBase64(file) {
   })
 }
 
-// ── TEMPORARY MAINTENANCE FREEZE ──────────────────────────────────────────
-// Profile creation/editing is frozen while we consolidate duplicate member
-// records. Flip to false (and redeploy) to lift the freeze. The save API
-// endpoints (save.js, save-member.js, save-profile-photo.js) enforce the same
-// freeze so it can't be bypassed by a direct request. REMOVE this block (and
-// the matching blocks in the save endpoints) once the cleanup is complete.
-const MAINTENANCE_FREEZE = true
-// ──────────────────────────────────────────────────────────────────────────
-
 export async function getServerSideProps(context) {
-  if (MAINTENANCE_FREEZE) {
-    return { props: { maintenance: true } }
-  }
-
   const supabaseServer = createServerSupabaseClient(context)
   const { data: { session } } = await supabaseServer.auth.getSession()
   if (!session) return { redirect: { destination: '/login', permanent: false } }
@@ -1001,31 +988,7 @@ function BuildWizard({ member, userEmail, certLabel }) {
   )
 }
 
-export default function ProfilePage({ member, userEmail, mode, maintenance, noMembership, loginEmail }) {
-  if (maintenance) {
-    return (
-      <div style={{
-        minHeight: '60vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
-        padding: '2rem', fontFamily: 'system-ui, sans-serif'
-      }}>
-        <div style={{
-          maxWidth: 520, textAlign: 'center', background: 'white',
-          border: '1px solid #e5e7eb', borderRadius: 12, padding: '2.5rem 2rem'
-        }}>
-          <h1 style={{ fontSize: '1.4rem', fontWeight: 600, color: '#13405E', marginBottom: '0.75rem' }}>
-            Profile editing is temporarily unavailable
-          </h1>
-          <p style={{ fontSize: '15px', color: '#4b5563', lineHeight: 1.6, margin: 0 }}>
-            We&rsquo;re performing scheduled maintenance on the advisor directory and have
-            paused profile creation and editing for a short time. Your certification and
-            existing profile are unaffected. Please check back soon &mdash; thank you for
-            your patience.
-          </p>
-        </div>
-      </div>
-    )
-  }
-
+export default function ProfilePage({ member, userEmail, mode, noMembership, loginEmail }) {
   if (noMembership) {
     return (
       <div style={{
