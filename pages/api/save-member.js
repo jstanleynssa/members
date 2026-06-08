@@ -4,7 +4,6 @@ import { slugForMember, revalidateDirectorySlugs } from '../../lib/revalidateDir
 
 // Normalize a user-entered URL: accept bare domains and prepend https://.
 // Empty stays empty; unparseable values pass through untouched.
-// redeploy
 function normalizeUrl(value) {
   if (value == null) return value
   const v = String(value).trim()
@@ -14,8 +13,14 @@ function normalizeUrl(value) {
   return v
 }
 
+// TEMPORARY MAINTENANCE FREEZE — see pages/profile.js. Remove when cleanup done.
+const MAINTENANCE_FREEZE = true
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end()
+  if (MAINTENANCE_FREEZE) {
+    return res.status(503).json({ error: 'Profile editing is temporarily unavailable for maintenance. Please try again later.' })
+  }
 
   const supabaseServer = createServerSupabaseClient({ req, res })
   const { data: { session } } = await supabaseServer.auth.getSession()
