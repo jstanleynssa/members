@@ -130,14 +130,29 @@ export async function getServerSideProps(context) {
     process.env.SUPABASE_SERVICE_ROLE_KEY
   )
 
+  // Look the member up by the email they authenticated with. We match
+  // case-insensitively so a capitalization difference between auth and the
+  // stored record doesn't read as "no membership".
+  const loginEmail = (session.user.email || '').trim()
   const { data: member } = await supabaseAdmin
     .from('members')
     .select('*')
-    .eq('email', session.user.email)
-    .single()
+    .ilike('email', loginEmail)
+    .maybeSingle()
 
-  // Cert guard — must be a certified member to build/edit a directory profile.
-  if (!member || (!member.nssa_certified && !member.irmaa_certified)) {
+  // No-membership guard — the authenticated email matches NO member record.
+  // This is almost always a legacy member signing in with a different email
+  // than the one on file for their certification. Do NOT create anything and
+  // do NOT silently bounce them (that dead-end is what confused people and
+  // drove duplicate accounts). Show a clear message telling them to use their
+  // certification email or contact support.
+  if (!member) {
+    return { props: { noMembership: true, loginEmail } }
+  }
+
+  // Cert guard — a member record exists but isn't certified for either program.
+  // (Different case from "no record": they have an account, just no cert yet.)
+  if (!member.nssa_certified && !member.irmaa_certified) {
     return { redirect: { destination: '/dashboard', permanent: false } }
   }
 
@@ -986,7 +1001,7 @@ function BuildWizard({ member, userEmail, certLabel }) {
   )
 }
 
-export default function ProfilePage({ member, userEmail, mode, maintenance }) {
+export default function ProfilePage({ member, userEmail, mode, maintenance, noMembership, loginEmail }) {
   if (maintenance) {
     return (
       <div style={{
@@ -1006,6 +1021,46 @@ export default function ProfilePage({ member, userEmail, mode, maintenance }) {
             existing profile are unaffected. Please check back soon &mdash; thank you for
             your patience.
           </p>
+        </div>
+      </div>
+    )
+  }
+
+  if (noMembership) {
+    return (
+      <div style={{
+        minHeight: '60vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: '2rem', fontFamily: 'system-ui, sans-serif'
+      }}>
+        <div style={{
+          maxWidth: 540, textAlign: 'center', background: 'white',
+          border: '1px solid #e5e7eb', borderRadius: 12, padding: '2.5rem 2rem'
+        }}>
+          <h1 style={{ fontSize: '1.4rem', fontWeight: 600, color: '#13405E', marginBottom: '0.75rem' }}>
+            We couldn&rsquo;t find your membership
+          </h1>
+          <p style={{ fontSize: '15px', color: '#4b5563', lineHeight: 1.6, marginBottom: '1rem' }}>
+            We don&rsquo;t have an NSSA membership on file for{' '}
+            <strong style={{ color: '#13405E' }}>{loginEmail || 'this email address'}</strong>.
+            You may have signed in with a different email than the one associated with your
+            certification.
+          </p>
+          <p style={{ fontSize: '15px', color: '#4b5563', lineHeight: 1.6, marginBottom: '1.5rem' }}>
+            Please sign out and sign back in using the email address tied to your NSSA
+            certification. If you&rsquo;re not sure which email that is, or you believe this
+            is a mistake, we&rsquo;re happy to help.
+          </p>
+          <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+            <a href="/login" style={{
+              display: 'inline-block', background: '#1C80BC', color: 'white',
+              padding: '0.6rem 1.2rem', borderRadius: 8, textDecoration: 'none', fontWeight: 600, fontSize: 14
+            }}>Sign in with a different email</a>
+            <a href="mailto:support@nssapros.com" style={{
+              display: 'inline-block', background: 'white', color: '#1C80BC',
+              border: '1px solid #1C80BC', padding: '0.6rem 1.2rem', borderRadius: 8,
+              textDecoration: 'none', fontWeight: 600, fontSize: 14
+            }}>Contact support</a>
+          </div>
         </div>
       </div>
     )
