@@ -21,10 +21,6 @@ function slugify(str) {
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end()
-  // TEMPORARY MAINTENANCE FREEZE — see pages/profile.js. Remove when cleanup done.
-  if (true) {
-    return res.status(503).json({ error: 'Photo updates are temporarily unavailable for maintenance. Please try again later.' })
-  }
 
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
