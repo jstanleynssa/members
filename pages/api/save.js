@@ -15,14 +15,8 @@ function normalizeUrl(value) {
   return v                                        // something else — leave as-is
 }
 
-// TEMPORARY MAINTENANCE FREEZE — see pages/profile.js. Remove when cleanup done.
-const MAINTENANCE_FREEZE = true
-
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end()
-  if (MAINTENANCE_FREEZE) {
-    return res.status(503).json({ error: 'Profile editing is temporarily unavailable for maintenance. Please try again later.' })
-  }
 
   // Authenticate via the session — never trust an email from the body.
   const supabaseServer = createServerSupabaseClient({ req, res })
