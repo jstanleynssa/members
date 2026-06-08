@@ -1,4 +1,3 @@
-// redeploy
 import { createClient } from '@supabase/supabase-js'
 import { slugForMember, revalidateDirectorySlugs } from '../../lib/revalidateDirectory'
 
@@ -134,7 +133,12 @@ export default async function handler(req, res) {
     if (uploadError) return res.status(500).json({ error: `Upload failed: ${uploadError.message}` })
 
     const { data: urlData } = supabase.storage.from('profile-photos').getPublicUrl(filename)
-    const permanentUrl = urlData.publicUrl
+    // The filename is deterministic (firstname-lastname-jobtitle-city.jpg) and we
+    // upload with upsert:true, so the storage path/URL is byte-identical across
+    // re-uploads. Browsers + the CDN would then serve the CACHED old image even
+    // though new bytes are in storage. Append a version param so each save yields
+    // a distinct URL and the new photo shows immediately.
+    const permanentUrl = `${urlData.publicUrl}?v=${Date.now()}`
 
     // ── Step 5: Update member record ──────────────────────────────────────────
     const { error: updateError } = await supabase
