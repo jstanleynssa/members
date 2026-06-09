@@ -1,0 +1,4 @@
+# members.nssapros.com is a logged-in member portal.
+# Keep it out of search so it never competes with directory.nssapros.com.
+User-agent: *
+Disallow: /
