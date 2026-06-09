@@ -29,7 +29,7 @@ export default async function handler(req, res) {
 
   const {
     email, first_name, last_name, job_title, company,
-    address, city, state, zip, phone, website,
+    address, city, state, zip, phone, mobile_phone, website, linkedin_url,
     bio, financial_disclosure
   } = req.body
 
@@ -51,8 +51,9 @@ export default async function handler(req, res) {
     .from('members')
     .update({
       first_name, last_name, job_title, company,
-      address, city, state, zip, phone,
+      address, city, state, zip, phone, mobile_phone,
       website: normalizeUrl(website),
+      linkedin_url: normalizeUrl(linkedin_url),
       bio, financial_disclosure
     })
     .eq('email', email)
