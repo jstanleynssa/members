@@ -1,7 +1,10 @@
 // pages/api/save-profile-photo.js
+import { createServerSupabaseClient } from '@supabase/auth-helpers-nextjs'
 import { createClient } from '@supabase/supabase-js'
 import { slugForMember, revalidateDirectorySlugs } from '../../lib/revalidateDirectory'
 import { syncAvatarToKajabi } from '../../lib/kajabi-sync'
+
+const ADMIN_EMAIL = 'jstanley@nssapros.com'
 
 const HEADSHOT_PROMPT = `Convert the uploaded photo into a professional executive headshot suitable for LinkedIn profiles, corporate websites, speaker biographies, advisor directories, and professional marketing materials.
 Preserve the person's exact identity, facial features, age, ethnicity, hairstyle, expression, and distinguishing characteristics. Do not materially alter the person's appearance or create a different face.
@@ -21,25 +24,81 @@ function slugify(str) {
     .replace(/^-+|-+$/g, '')
 }
 
+// A "previewUrl" handed back to the commit path is always one this endpoint
+// produced in preview mode and stored in our own bucket. Requiring that origin
+// stops the commit path from being coerced into fetching an arbitrary
+// (e.g. internal/metadata) URL — i.e. it closes the SSRF surface.
+function isOwnStorageUrl(u) {
+  const base = process.env.NEXT_PUBLIC_SUPABASE_URL
+  return typeof u === 'string' && !!base &&
+    u.split('?')[0].startsWith(`${base}/storage/v1/object/public/profile-photos/`)
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end()
+
+  // ── Authentication ──────────────────────────────────────────────────────
+  // This route is excluded from the auth middleware so the session-less
+  // assessment intake can reach it, which means the handler MUST authenticate
+  // every request itself. Two legitimate callers:
+  //   1. A logged-in member (or admin) editing a photo in the portal —
+  //      identified by their Supabase session cookie.
+  //   2. The Kajabi → Zapier assessment intake — no session, authenticated
+  //      with a shared secret (PHOTO_INTAKE_SECRET), since it posts an
+  //      external S3 photoUrl. Fails closed if the secret is unset.
+  // Anything else is rejected.
+  const supabaseAuth = createServerSupabaseClient({ req, res })
+  const { data: { session } } = await supabaseAuth.auth.getSession()
+
+  const intakeSecret = process.env.PHOTO_INTAKE_SECRET
+  const providedSecret = req.headers['x-intake-secret'] || req.body?.secret
+  const isIntake = !session && !!intakeSecret && providedSecret === intakeSecret
+
+  const {
+    email: bodyEmail, photoUrl, imageData, mimeType,
+    enhance = true, mode, previewUrl, attempt = 0,
+  } = req.body || {}
+
+  // Resolve the member this request is allowed to act on. A member is pinned
+  // to their own session email; an admin may target another via body email;
+  // the intake path uses the body email it was given.
+  let targetEmail = null
+  if (session) {
+    const isAdmin = session.user.email === ADMIN_EMAIL
+    targetEmail = isAdmin && bodyEmail ? bodyEmail : session.user.email
+  } else if (isIntake) {
+    targetEmail = bodyEmail
+  } else {
+    return res.status(401).json({ error: 'Not authenticated' })
+  }
+
+  // External photoUrl fetches are only honored on the secret-gated intake path
+  // (Zapier's S3 upload). Session/browser callers send imageData or a previewUrl
+  // from our own storage — never an arbitrary URL — so photoUrl is ignored for
+  // them, removing the SSRF surface from the authenticated browser flow.
+  const externalPhotoUrl = isIntake ? photoUrl : null
+
+  const hasSource = externalPhotoUrl || imageData || previewUrl
+  if (!targetEmail || !hasSource) {
+    return res.status(400).json({ error: 'Missing email and photo source' })
+  }
+
+  // A commit from a previously-generated AI preview must reference our own
+  // storage bucket, never an external URL (SSRF guard).
+  if (mode === 'commit' && previewUrl && !isOwnStorageUrl(previewUrl)) {
+    return res.status(400).json({ error: 'Invalid preview URL' })
+  }
 
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
     process.env.SUPABASE_SERVICE_ROLE_KEY
   )
 
-  const { email, photoUrl, imageData, mimeType, enhance = true, mode, previewUrl, attempt = 0 } = req.body
-
-  if (!email || (!photoUrl && !imageData && !previewUrl)) {
-    return res.status(400).json({ error: 'Missing email and photo source' })
-  }
-
   // ── Fetch member details for filename and alt text ────────────────────
   const { data: member } = await supabase
     .from('members')
     .select('first_name, last_name, job_title, city')
-    .eq('email', email)
+    .eq('email', targetEmail)
     .single()
 
   const firstName = slugify(member?.first_name)
@@ -47,7 +106,7 @@ export default async function handler(req, res) {
   const jobTitle  = slugify(member?.job_title)
   const city      = slugify(member?.city)
   const baseName  = [firstName, lastName, jobTitle, city].filter(Boolean).join('-')
-  const filename  = `${baseName || slugify(email)}.jpg`
+  const filename  = `${baseName || slugify(targetEmail)}.jpg`
 
   const altText = [
     member?.first_name,
@@ -67,10 +126,10 @@ export default async function handler(req, res) {
     if (mode === 'preview') {
       let imgBuffer = imageData ? Buffer.from(imageData, 'base64') : null
       let finalMime = mimeType || 'image/jpeg'
-      let imageUrlForFal = photoUrl || null
+      let imageUrlForFal = externalPhotoUrl || null
 
       if (imageData && falKey) {
-        const tempPath = `temp/${slugify(email)}-${Date.now()}.jpg`
+        const tempPath = `temp/${slugify(targetEmail)}-${Date.now()}.jpg`
         await supabase.storage
           .from('profile-photos')
           .upload(tempPath, imgBuffer, { contentType: finalMime, upsert: true })
@@ -83,7 +142,7 @@ export default async function handler(req, res) {
 
       if (falKey && imageUrlForFal) {
         try {
-          console.log(`[photo/preview] Submitting to FLUX.1 Kontext [pro] for ${email} (attempt ${attempt})...`)
+          console.log(`[photo/preview] Submitting to FLUX.1 Kontext [pro] for ${targetEmail} (attempt ${attempt})...`)
           const falRes = await fetch('https://fal.run/fal-ai/flux-pro/kontext', {
             method: 'POST',
             headers: { 'Authorization': `Key ${falKey}`, 'Content-Type': 'application/json' },
@@ -120,7 +179,7 @@ export default async function handler(req, res) {
 
       if (!imgBuffer) return res.status(400).json({ error: 'No image data available for preview' })
 
-      const previewPath = `previews/${slugify(email)}-preview-${attempt}-${Date.now()}.jpg`
+      const previewPath = `previews/${slugify(targetEmail)}-preview-${attempt}-${Date.now()}.jpg`
       const { error: previewUploadError } = await supabase.storage
         .from('profile-photos')
         .upload(previewPath, imgBuffer, { contentType: 'image/jpeg', upsert: true })
@@ -133,7 +192,7 @@ export default async function handler(req, res) {
         .from('profile-photos')
         .getPublicUrl(previewPath)
 
-      console.log(`[photo/preview] ✓ Preview ready for ${email}`)
+      console.log(`[photo/preview] ✓ Preview ready for ${targetEmail}`)
       return res.status(200).json({ ok: true, previewUrl: previewUrlData.publicUrl })
     }
 
@@ -149,6 +208,7 @@ export default async function handler(req, res) {
 
     if (mode === 'commit' && previewUrl) {
       // (a) AI commit — download the already-generated preview from storage
+      // (previewUrl was validated above as one of our own bucket URLs).
       console.log(`[photo/commit] Fetching AI preview for permanent save...`)
       const dlRes = await fetch(previewUrl.split('?')[0])
       if (!dlRes.ok) return res.status(400).json({ error: `Preview fetch failed: ${dlRes.status}` })
@@ -157,7 +217,7 @@ export default async function handler(req, res) {
       console.log(`[photo/commit] AI preview fetched ✓`)
     } else {
       // (b) Original or legacy commit
-      let imageUrlForDownload = photoUrl || null
+      let imageUrlForDownload = externalPhotoUrl || null
 
       if (imageData) {
         imgBuffer = Buffer.from(imageData, 'base64')
@@ -166,7 +226,7 @@ export default async function handler(req, res) {
 
       if (enhance && falKey && (imageUrlForDownload || imageData)) {
         if (imageData && !imageUrlForDownload) {
-          const tempPath = `temp/${slugify(email)}-${Date.now()}.jpg`
+          const tempPath = `temp/${slugify(targetEmail)}-${Date.now()}.jpg`
           await supabase.storage
             .from('profile-photos')
             .upload(tempPath, imgBuffer, { contentType: finalMime, upsert: true })
@@ -177,7 +237,7 @@ export default async function handler(req, res) {
           console.log(`[photo/commit] Temp upload for fal.ai ✓`)
         }
         try {
-          console.log(`[photo/commit] Submitting to FLUX.1 Kontext [pro] for ${email}...`)
+          console.log(`[photo/commit] Submitting to FLUX.1 Kontext [pro] for ${targetEmail}...`)
           const falRes = await fetch('https://fal.run/fal-ai/flux-pro/kontext', {
             method: 'POST',
             headers: { 'Authorization': `Key ${falKey}`, 'Content-Type': 'application/json' },
@@ -240,7 +300,7 @@ export default async function handler(req, res) {
     const { error: updateError } = await supabase
       .from('members')
       .update({ profile_photo: permanentUrl })
-      .eq('email', email)
+      .eq('email', targetEmail)
 
     if (updateError) return res.status(500).json({ error: `Member update failed: ${updateError.message}` })
 
@@ -249,7 +309,7 @@ export default async function handler(req, res) {
       const { data: m } = await supabase
         .from('members')
         .select('first_name, last_name, city, state')
-        .eq('email', email)
+        .eq('email', targetEmail)
         .single()
       if (m) await revalidateDirectorySlugs([slugForMember(m)])
     } catch { /* non-fatal */ }
@@ -258,11 +318,11 @@ export default async function handler(req, res) {
     // Push the permanent photo URL (without cache-bust param) to the
     // Kajabi customer avatar. Runs after the Supabase save so a Kajabi
     // failure never prevents the photo from being saved locally.
-    syncAvatarToKajabi(supabase, email, urlData.publicUrl)
+    syncAvatarToKajabi(supabase, targetEmail, urlData.publicUrl)
       .catch(err => console.warn('[save-profile-photo] Kajabi avatar sync threw:', err.message))
 
-    console.log(`[photo/commit] ✓ Complete for ${email} → ${permanentUrl}`)
-    return res.status(200).json({ ok: true, email, filename, profile_photo: permanentUrl, alt_text: altText })
+    console.log(`[photo/commit] ✓ Complete for ${targetEmail} → ${permanentUrl}`)
+    return res.status(200).json({ ok: true, email: targetEmail, filename, profile_photo: permanentUrl, alt_text: altText })
 
   } catch (err) {
     console.error('[photo] Unexpected error:', err.message)
