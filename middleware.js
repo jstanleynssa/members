@@ -12,7 +12,7 @@ export async function middleware(req) {
   const isPublic = PUBLIC_PATHS.some(p => pathname.startsWith(p))
   const isCallback = pathname.startsWith('/auth/callback')
   const isKajabiSSO = pathname.startsWith('/api/auth/kajabi-sso')
-  const isZoomWebhook = pathname.startsWith('/api/zoom-webhook')
+  const isZoomWebhook = pathname === '/api/zoom-webhook'
   const isCeStatus = pathname.startsWith('/api/ce-status')
   const isSavePhoto = pathname.startsWith('/api/save-profile-photo')
   const isInvite = pathname.startsWith('/api/invite')
