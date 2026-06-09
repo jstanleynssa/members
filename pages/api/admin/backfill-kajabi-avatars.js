@@ -1,188 +1,223 @@
-// pages/api/admin/backfill-kajabi-avatars.js
-// ONE-TIME USE: Pushes existing Supabase profile photos to Kajabi avatars.
-// 
-// USAGE:
-//   1. Deploy this file to the members app
-//   2. Visit: https://members.nssapros.com/api/admin/backfill-kajabi-avatars?secret=YOUR_SECRET
-//   3. Watch the JSON progress response
-//   4. DELETE this file and redeploy when done
+// lib/kajabi-sync.js
+// Shared Kajabi API sync utility for the members portal.
 //
-// Add BACKFILL_SECRET to your Vercel env vars (any random string you choose)
-// to prevent unauthorized access. Remove it after the backfill is complete.
+// Handles OAuth2 client-credentials token fetch (with in-memory caching so we
+// don't request a new token on every save), and exposes two functions:
 //
-// Rate limited to 2 requests/second to stay within Kajabi API limits.
-// With ~707 photos this will take approximately 6-7 minutes to complete.
-// The response streams progress as newline-delimited JSON.
+//   syncContactToKajabi(supabaseAdmin, email, fields)
+//     Push profile field changes (name, phone, state, city, zip) to the
+//     Kajabi contact record matched by kajabi_contact_id.
+//
+//   syncAvatarToKajabi(supabaseAdmin, email, photoUrl)
+//     Push a new profile photo URL to the Kajabi customer avatar field.
+//
+// Both functions are best-effort and non-blocking — they log warnings on
+// failure but never throw or cause the parent API route to fail.
+//
+// Required env vars (set in Vercel):
+//   KAJABI_CLIENT_ID      — OAuth2 client ID from Kajabi API settings
+//   KAJABI_CLIENT_SECRET  — OAuth2 client secret from Kajabi API settings
+//   KAJABI_SITE_ID        — Kajabi site ID (from admin URL)
 
-// Required: prevents Next.js from attempting static prerender at build time
-export const config = { api: { bodyParser: false } }
+const KAJABI_API   = 'https://api.kajabi.com/v1'
+const KAJABI_TOKEN = 'https://api.kajabi.com/v1/oauth/token'
 
-import { createClient } from '@supabase/supabase-js'
-
-const KAJABI_API   = 'https://kajabi.com/api/v1'
-const KAJABI_TOKEN = 'https://kajabi.com/v1/oauth/token'
-const RATE_LIMIT_MS = 500  // 2 requests per second
-
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms))
-}
+// ── In-memory token cache ─────────────────────────────────────────────────
+// Token lives for 2 hours per Kajabi docs; we refresh 5 minutes early.
+let _cachedToken    = null
+let _tokenExpiresAt = 0
 
 async function getBearerToken() {
+  const now = Date.now()
+  if (_cachedToken && now < _tokenExpiresAt) return _cachedToken
+
+  const clientId     = process.env.KAJABI_CLIENT_ID
+  const clientSecret = process.env.KAJABI_CLIENT_SECRET
+
+  if (!clientId || !clientSecret) {
+    throw new Error('KAJABI_CLIENT_ID or KAJABI_CLIENT_SECRET env vars not set')
+  }
+
+  const params = new URLSearchParams()
+  params.append('grant_type',    'client_credentials')
+  params.append('client_id',     clientId)
+  params.append('client_secret', clientSecret)
+
   const res = await fetch(KAJABI_TOKEN, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      grant_type:    'client_credentials',
-      client_id:     process.env.KAJABI_CLIENT_ID,
-      client_secret: process.env.KAJABI_CLIENT_SECRET,
-    }),
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: params.toString(),
   })
+
   if (!res.ok) {
     const text = await res.text()
-    throw new Error(`Token fetch failed (${res.status}): ${text}`)
+    throw new Error(`Kajabi token fetch failed (${res.status}): ${text}`)
   }
+
   const data = await res.json()
-  return data.access_token
+  _cachedToken    = data.access_token
+  // expires_in is in seconds; cache for that duration minus 5 min buffer
+  _tokenExpiresAt = now + ((data.expires_in || 7200) - 300) * 1000
+  return _cachedToken
 }
 
-async function getCustomerId(contactId, token) {
-  const res = await fetch(
-    `${KAJABI_API}/contacts/${contactId}?include=customer`,
-    {
+// ── Look up kajabi_contact_id for an email ────────────────────────────────
+async function getKajabiContactId(supabaseAdmin, email) {
+  const { data, error } = await supabaseAdmin
+    .from('members')
+    .select('kajabi_contact_id')
+    .eq('email', email)
+    .single()
+
+  if (error || !data?.kajabi_contact_id) return null
+  return data.kajabi_contact_id
+}
+
+// ── Sync contact fields → Kajabi ──────────────────────────────────────────
+// fields: object with any subset of:
+//   { first_name, last_name, phone, city, state, zip }
+// Maps to Kajabi contact attributes:
+//   name (full name), phone_number, address_city, address_state, address_zip
+export async function syncContactToKajabi(supabaseAdmin, email, fields) {
+  try {
+    const contactId = await getKajabiContactId(supabaseAdmin, email)
+    if (!contactId) {
+      console.warn(`[kajabi-sync] No kajabi_contact_id for ${email} — skipping contact sync`)
+      return
+    }
+
+    // Build the Kajabi attributes payload from whichever fields were provided
+    const attributes = {}
+
+    // Kajabi stores the full name as a single 'name' field
+    if (fields.first_name !== undefined || fields.last_name !== undefined) {
+      // Fetch current name from Supabase if only one half was provided
+      let first = fields.first_name
+      let last  = fields.last_name
+      if (first === undefined || last === undefined) {
+        const { data: m } = await supabaseAdmin
+          .from('members')
+          .select('first_name, last_name')
+          .eq('email', email)
+          .single()
+        if (m) {
+          first = first ?? m.first_name
+          last  = last  ?? m.last_name
+        }
+      }
+      const fullName = [first, last].filter(Boolean).join(' ')
+      if (fullName) attributes.name = fullName
+    }
+
+    if (fields.phone     !== undefined) attributes.phone_number  = fields.phone     || null
+    if (fields.city      !== undefined) attributes.address_city  = fields.city      || null
+    if (fields.state     !== undefined) attributes.address_state = fields.state     || null
+    if (fields.zip       !== undefined) attributes.address_zip   = fields.zip       || null
+
+    if (Object.keys(attributes).length === 0) {
+      console.log(`[kajabi-sync] No syncable fields for ${email} — skipping`)
+      return
+    }
+
+    const token = await getBearerToken()
+    const res = await fetch(`${KAJABI_API}/contacts/${contactId}`, {
+      method: 'PATCH',
+      headers: {
+        'Authorization':  `Bearer ${token}`,
+        'Content-Type':   'application/vnd.api+json',
+        'Accept':         'application/vnd.api+json',
+      },
+      body: JSON.stringify({
+        data: {
+          id:         String(contactId),
+          type:       'contacts',
+          attributes,
+        }
+      }),
+    })
+
+    if (!res.ok) {
+      const text = await res.text()
+      console.warn(`[kajabi-sync] Contact update failed for ${email} (${res.status}): ${text}`)
+      return
+    }
+
+    console.log(`[kajabi-sync] ✓ Contact synced for ${email}`)
+  } catch (err) {
+    // Never block the parent save — log and move on
+    console.warn(`[kajabi-sync] Contact sync error for ${email}: ${err.message}`)
+  }
+}
+
+// ── Sync avatar → Kajabi customer record ──────────────────────────────────
+// Kajabi stores the avatar on the *customer* resource, not the contact.
+// The customer link is available via GET /v1/contacts/{id}?include=customer,
+// but we can also PATCH the customer directly via the customer URL returned
+// in the contact's links.customer field.
+// photoUrl: full public URL of the saved photo (strip cache-bust params first)
+export async function syncAvatarToKajabi(supabaseAdmin, email, photoUrl) {
+  try {
+    const contactId = await getKajabiContactId(supabaseAdmin, email)
+    if (!contactId) {
+      console.warn(`[kajabi-sync] No kajabi_contact_id for ${email} — skipping avatar sync`)
+      return
+    }
+
+    const token = await getBearerToken()
+
+    // Step 1: fetch contact to get the customer ID from the relationships
+    const contactRes = await fetch(
+      `${KAJABI_API}/contacts/${contactId}?include=customer`,
+      {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept':        'application/vnd.api+json',
+        },
+      }
+    )
+
+    if (!contactRes.ok) {
+      console.warn(`[kajabi-sync] Could not fetch contact ${contactId} for avatar sync`)
+      return
+    }
+
+    const contactData = await contactRes.json()
+
+    // Extract customer ID from relationships
+    const customerId = contactData?.data?.relationships?.customer?.data?.id
+    if (!customerId) {
+      console.warn(`[kajabi-sync] No customer linked to contact ${contactId} — skipping avatar`)
+      return
+    }
+
+    // Step 2: PATCH the customer avatar
+    // Strip any cache-bust query params before sending to Kajabi
+    const cleanUrl = photoUrl.split('?')[0]
+
+    const avatarRes = await fetch(`${KAJABI_API}/customers/${customerId}`, {
+      method: 'PATCH',
       headers: {
         'Authorization': `Bearer ${token}`,
+        'Content-Type':  'application/vnd.api+json',
         'Accept':        'application/vnd.api+json',
       },
-    }
-  )
-  if (!res.ok) return null
-  const data = await res.json()
-  return data?.data?.relationships?.customer?.data?.id || null
-}
-
-async function patchAvatar(customerId, avatarUrl, token) {
-  const res = await fetch(`${KAJABI_API}/customers/${customerId}`, {
-    method: 'PATCH',
-    headers: {
-      'Authorization': `Bearer ${token}`,
-      'Content-Type':  'application/vnd.api+json',
-      'Accept':        'application/vnd.api+json',
-    },
-    body: JSON.stringify({
-      data: {
-        id:         String(customerId),
-        type:       'customers',
-        attributes: { avatar: avatarUrl },
-      }
-    }),
-  })
-  return res.ok
-}
-
-export default async function handler(req, res) {
-  // ── Auth guard ──────────────────────────────────────────────────────────
-  const secret = process.env.BACKFILL_SECRET
-  if (!secret || req.query.secret !== secret) {
-    return res.status(401).json({ error: 'Unauthorized — pass ?secret=YOUR_SECRET' })
-  }
-
-  // ── Admin only ──────────────────────────────────────────────────────────
-  // Extra safety: only callable from the admin email context or via secret
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_ROLE_KEY
-  )
-
-  // ── Fetch all members with a photo and a Kajabi contact ID ─────────────
-  const { data: members, error } = await supabase
-    .from('members')
-    .select('email, profile_photo, kajabi_contact_id')
-    .not('profile_photo', 'is', null)
-    .not('kajabi_contact_id', 'is', null)
-    .order('email')
-
-  if (error) {
-    return res.status(500).json({ error: `Supabase query failed: ${error.message}` })
-  }
-
-  const total = members.length
-  console.log(`[backfill] Starting avatar backfill for ${total} members`)
-
-  // ── Stream progress as JSON ─────────────────────────────────────────────
-  // Set headers for streaming response
-  res.setHeader('Content-Type', 'application/json')
-  res.setHeader('Transfer-Encoding', 'chunked')
-  res.setHeader('X-Accel-Buffering', 'no')
-
-  const results = {
-    total,
-    succeeded: 0,
-    failed:    0,
-    skipped:   0,
-    errors:    [],
-  }
-
-  try {
-    // Fetch token once upfront
-    const token = await getBearerToken()
-    console.log(`[backfill] Token obtained ✓`)
-
-    for (let i = 0; i < members.length; i++) {
-      const { email, profile_photo, kajabi_contact_id } = members[i]
-
-      // Strip cache-bust params before sending to Kajabi
-      const cleanUrl = profile_photo.split('?')[0]
-
-      if (!cleanUrl) {
-        results.skipped++
-        continue
-      }
-
-      try {
-        // Step 1: get customer ID from contact
-        const customerId = await getCustomerId(kajabi_contact_id, token)
-
-        if (!customerId) {
-          console.warn(`[backfill] No customer for contact ${kajabi_contact_id} (${email})`)
-          results.skipped++
-          continue
+      body: JSON.stringify({
+        data: {
+          id:         String(customerId),
+          type:       'customers',
+          attributes: { avatar: cleanUrl },
         }
-
-        // Step 2: patch avatar
-        const ok = await patchAvatar(customerId, cleanUrl, token)
-
-        if (ok) {
-          results.succeeded++
-          console.log(`[backfill] ✓ ${i + 1}/${total} ${email}`)
-        } else {
-          results.failed++
-          results.errors.push({ email, reason: 'PATCH failed' })
-          console.warn(`[backfill] ✗ ${i + 1}/${total} ${email} — PATCH failed`)
-        }
-      } catch (err) {
-        results.failed++
-        results.errors.push({ email, reason: err.message })
-        console.warn(`[backfill] ✗ ${i + 1}/${total} ${email} — ${err.message}`)
-      }
-
-      // Rate limit: 2 requests per second
-      // Each iteration does 2 API calls (getCustomer + patchAvatar)
-      // so we wait 500ms between members
-      if (i < members.length - 1) {
-        await sleep(RATE_LIMIT_MS)
-      }
-    }
-  } catch (err) {
-    return res.status(500).json({
-      error: `Backfill failed: ${err.message}`,
-      partial_results: results,
+      }),
     })
+
+    if (!avatarRes.ok) {
+      const text = await avatarRes.text()
+      console.warn(`[kajabi-sync] Avatar update failed for ${email} (${avatarRes.status}): ${text}`)
+      return
+    }
+
+    console.log(`[kajabi-sync] ✓ Avatar synced for ${email}`)
+  } catch (err) {
+    console.warn(`[kajabi-sync] Avatar sync error for ${email}: ${err.message}`)
   }
-
-  console.log(`[backfill] Complete — ${results.succeeded} succeeded, ${results.failed} failed, ${results.skipped} skipped`)
-
-  return res.status(200).json({
-    message: 'Backfill complete',
-    ...results,
-  })
 }
