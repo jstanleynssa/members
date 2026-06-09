@@ -35,6 +35,7 @@ export default async function handler(req, res) {
     address, city, state, zip,
     phone, mobile_phone, website, linkedin_url,
     bio, financial_disclosure,
+    directory_opt_out, profile_completed,
   } = req.body
 
   // A member can only edit their own row. An admin may target another
@@ -56,16 +57,24 @@ export default async function handler(req, res) {
     if (prev) oldSlug = slugForMember(prev)
   } catch { /* non-fatal */ }
 
+  const update = {
+    first_name, last_name, job_title, company,
+    address, city, state, zip,
+    phone, mobile_phone,
+    website:      normalizeUrl(website),
+    linkedin_url: normalizeUrl(linkedin_url),
+    bio, financial_disclosure,
+  }
+  // Persist these only when the client actually sent a boolean, so an edit
+  // that omits them (Simple Edit, intermediate wizard steps) never clobbers a
+  // previously-saved value. directory_opt_out is the member's directory
+  // privacy toggle; profile_completed marks a finished build-out wizard.
+  if (typeof directory_opt_out === 'boolean') update.directory_opt_out = directory_opt_out
+  if (typeof profile_completed === 'boolean') update.profile_completed = profile_completed
+
   const { error } = await supabaseAdmin
     .from('members')
-    .update({
-      first_name, last_name, job_title, company,
-      address, city, state, zip,
-      phone, mobile_phone,
-      website:      normalizeUrl(website),
-      linkedin_url: normalizeUrl(linkedin_url),
-      bio, financial_disclosure,
-    })
+    .update(update)
     .eq('email', targetEmail)
 
   if (error) return res.status(500).json({ error: error.message })
