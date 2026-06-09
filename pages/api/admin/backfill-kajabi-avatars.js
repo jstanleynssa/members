@@ -14,10 +14,13 @@
 // With ~707 photos this will take approximately 6-7 minutes to complete.
 // The response streams progress as newline-delimited JSON.
 
+// Required: prevents Next.js from attempting static prerender at build time
+export const config = { api: { bodyParser: false } }
+
 import { createClient } from '@supabase/supabase-js'
 
 const KAJABI_API   = 'https://kajabi.com/api/v1'
-const KAJABI_TOKEN = 'https://kajabi.com/oauth/token'
+const KAJABI_TOKEN = 'https://kajabi.com/v1/oauth/token'
 const RATE_LIMIT_MS = 500  // 2 requests per second
 
 function sleep(ms) {
