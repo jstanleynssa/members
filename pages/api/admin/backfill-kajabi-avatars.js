@@ -14,8 +14,13 @@
 // With ~707 photos this will take approximately 6-7 minutes to complete.
 // The response streams progress as newline-delimited JSON.
 
-// Required: prevents Next.js from attempting static prerender at build time
-export const config = { api: { bodyParser: false } }
+// Required: prevents Next.js from attempting static prerender at build time.
+// maxDuration: 300 seconds (max on Vercel Pro). On Hobby plan max is 60.
+// Process in batches using ?offset=0&limit=100 to stay within timeout.
+export const config = {
+  api: { bodyParser: false },
+  maxDuration: 300,
+}
 
 import { createClient } from '@supabase/supabase-js'
 
@@ -95,19 +100,27 @@ export default async function handler(req, res) {
   )
 
   // ── Fetch all members with a photo and a Kajabi contact ID ─────────────
+  // Batch processing: use ?offset=0&limit=100 to process in chunks
+  // e.g. first batch:  ?secret=X&offset=0&limit=100
+  //      second batch: ?secret=X&offset=100&limit=100
+  //      third batch:  ?secret=X&offset=200&limit=100  etc.
+  const offset = parseInt(req.query.offset || '0', 10)
+  const limit  = parseInt(req.query.limit  || '100', 10)
+
   const { data: members, error } = await supabase
     .from('members')
     .select('email, profile_photo, kajabi_contact_id')
     .not('profile_photo', 'is', null)
     .not('kajabi_contact_id', 'is', null)
     .order('email')
+    .range(offset, offset + limit - 1)
 
   if (error) {
     return res.status(500).json({ error: `Supabase query failed: ${error.message}` })
   }
 
   const total = members.length
-  console.log(`[backfill] Starting avatar backfill for ${total} members`)
+  console.log(`[backfill] Processing ${total} members (offset=${offset}, limit=${limit})`)
 
   // ── Stream progress as JSON ─────────────────────────────────────────────
   // Set headers for streaming response
@@ -183,7 +196,10 @@ export default async function handler(req, res) {
   console.log(`[backfill] Complete — ${results.succeeded} succeeded, ${results.failed} failed, ${results.skipped} skipped`)
 
   return res.status(200).json({
-    message: 'Backfill complete',
+    message: 'Batch complete',
+    offset,
+    limit,
+    next_offset: total < limit ? null : offset + limit,
     ...results,
   })
 }
