@@ -1,5 +1,7 @@
 // pages/api/admin/backfill-kajabi-avatars.js
-// ONE-TIME USE: Pushes existing Supabase profile photos to Kajabi avatars.
+// ONE-TIME USE: Pushes existing Supabase profile data to Kajabi contacts.
+// NOTE: Kajabi's public API does not expose an avatar/photo write endpoint.
+// This backfill syncs: name, phone, address_city, address_state, address_zip.
 // 
 // USAGE:
 //   1. Deploy this file to the members app
@@ -11,7 +13,7 @@
 // to prevent unauthorized access. Remove it after the backfill is complete.
 //
 // Rate limited to 2 requests/second to stay within Kajabi API limits.
-// With ~707 photos this will take approximately 6-7 minutes to complete.
+// With ~1640 contacts this will take ~14 minutes total across all batches.
 // The response streams progress as newline-delimited JSON.
 
 // Required: prevents Next.js from attempting static prerender at build time.
@@ -51,23 +53,8 @@ async function getBearerToken() {
   return data.access_token
 }
 
-async function getCustomerId(contactId, token) {
-  const res = await fetch(
-    `${KAJABI_API}/contacts/${contactId}?include=customer`,
-    {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Accept':        'application/vnd.api+json',
-      },
-    }
-  )
-  if (!res.ok) return null
-  const data = await res.json()
-  return data?.data?.relationships?.customer?.data?.id || null
-}
-
-async function patchAvatar(customerId, avatarUrl, token) {
-  const res = await fetch(`${KAJABI_API}/customers/${customerId}`, {
+async function patchContact(contactId, attributes, token) {
+  const res = await fetch(`${KAJABI_API}/contacts/${contactId}`, {
     method: 'PATCH',
     headers: {
       'Authorization': `Bearer ${token}`,
@@ -76,9 +63,9 @@ async function patchAvatar(customerId, avatarUrl, token) {
     },
     body: JSON.stringify({
       data: {
-        id:         String(customerId),
-        type:       'customers',
-        attributes: { avatar: avatarUrl },
+        id:         String(contactId),
+        type:       'contacts',
+        attributes,
       }
     }),
   })
@@ -109,8 +96,7 @@ export default async function handler(req, res) {
 
   const { data: members, error } = await supabase
     .from('members')
-    .select('email, profile_photo, kajabi_contact_id')
-    .not('profile_photo', 'is', null)
+    .select('email, first_name, last_name, phone, city, state, zip, kajabi_contact_id')
     .not('kajabi_contact_id', 'is', null)
     .order('email')
     .range(offset, offset + limit - 1)
@@ -144,26 +130,24 @@ export default async function handler(req, res) {
     for (let i = 0; i < members.length; i++) {
       const { email, profile_photo, kajabi_contact_id } = members[i]
 
-      // Strip cache-bust params before sending to Kajabi
-      const cleanUrl = profile_photo.split('?')[0]
+      // Build attributes from whatever fields are populated
+      const attributes = {}
+      const { first_name, last_name, phone, city, state, zip } = members[i]
 
-      if (!cleanUrl) {
+      const fullName = [first_name, last_name].filter(Boolean).join(' ')
+      if (fullName)  attributes.name            = fullName
+      if (phone)     attributes.phone_number    = phone
+      if (city)      attributes.address_city    = city
+      if (state)     attributes.address_state   = state
+      if (zip)       attributes.address_zip     = zip
+
+      if (Object.keys(attributes).length === 0) {
         results.skipped++
         continue
       }
 
       try {
-        // Step 1: get customer ID from contact
-        const customerId = await getCustomerId(kajabi_contact_id, token)
-
-        if (!customerId) {
-          console.warn(`[backfill] No customer for contact ${kajabi_contact_id} (${email})`)
-          results.skipped++
-          continue
-        }
-
-        // Step 2: patch avatar
-        const ok = await patchAvatar(customerId, cleanUrl, token)
+        const ok = await patchContact(kajabi_contact_id, attributes, token)
 
         if (ok) {
           results.succeeded++
