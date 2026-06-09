@@ -27,8 +27,12 @@ export default async function handler(req, res) {
     process.env.SUPABASE_SERVICE_ROLE_KEY
   )
 
-  const { email, photoUrl, imageData, mimeType, enhance = true } = req.body
-  if (!email || (!photoUrl && !imageData)) {
+  // mode: 'preview'  → run AI, save to temp path, return previewUrl (no member update)
+  // mode: 'commit'   → either copy preview to permanent path, or save original as-is
+  // (legacy: no mode field → treat as direct commit, old behavior preserved)
+  const { email, photoUrl, imageData, mimeType, enhance = true, mode, previewUrl, attempt = 0 } = req.body
+
+  if (!email || (!photoUrl && !imageData && !previewUrl)) {
     return res.status(400).json({ error: 'Missing email and photo source' })
   }
 
@@ -57,75 +61,183 @@ export default async function handler(req, res) {
   const falKey = process.env.FAL_API_KEY
 
   try {
-    let imgBuffer = imageData ? Buffer.from(imageData, 'base64') : null
-    let finalMime = mimeType || 'image/jpeg'
-    let imageUrl  = photoUrl || null
+    // ════════════════════════════════════════════════════════════════════════
+    // PREVIEW MODE — run AI, save to a temp preview path, return the URL.
+    // Nothing is written to the member record; the advisor picks one after.
+    // ════════════════════════════════════════════════════════════════════════
+    if (mode === 'preview') {
+      let imgBuffer = imageData ? Buffer.from(imageData, 'base64') : null
+      let finalMime = mimeType || 'image/jpeg'
+      let imageUrlForFal = photoUrl || null
 
-    // ── Step 1: If base64 upload, store as temp file to get a public URL ─────
-    if (imageData && enhance && falKey) {
-      const tempPath = `temp/${slugify(email)}-${Date.now()}.jpg`
-      await supabase.storage
-        .from('profile-photos')
-        .upload(tempPath, imgBuffer, { contentType: finalMime, upsert: true })
-      const { data: tempUrlData } = supabase.storage
-        .from('profile-photos')
-        .getPublicUrl(tempPath)
-      imageUrl = tempUrlData.publicUrl
-      console.log(`[photo] Temp upload for fal.ai ✓`)
-    }
-
-    // ── Step 2: AI enhancement via FLUX.1 Kontext [pro] ──────────────────────
-    if (enhance && falKey && imageUrl) {
-      try {
-        console.log(`[photo] Submitting to FLUX.1 Kontext [pro] for ${email}...`)
-        const falRes = await fetch('https://fal.run/fal-ai/flux-pro/kontext', {
-          method: 'POST',
-          headers: { 'Authorization': `Key ${falKey}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            image_url: imageUrl,
-            prompt: HEADSHOT_PROMPT,
-            negative_prompt: HEADSHOT_NEGATIVE,
-            aspect_ratio: '1:1',
-            image_size: { width: 676, height: 696 },
-            guidance_scale: 3.5,
-            num_inference_steps: 28,
-            output_format: 'jpeg'
-          })
-        })
-
-        if (falRes.ok) {
-          const falData = await falRes.json()
-          const outputUrl = falData?.images?.[0]?.url
-          if (outputUrl) {
-            const dlRes = await fetch(outputUrl)
-            if (dlRes.ok) {
-              imgBuffer = Buffer.from(await dlRes.arrayBuffer())
-              finalMime = 'image/jpeg'
-              console.log(`[photo] FLUX.1 Kontext complete ✓`)
-            }
-          }
-        } else {
-          const errText = await falRes.text()
-          console.warn(`[photo] Kontext failed (${falRes.status}): ${errText} — using original`)
-        }
-      } catch (e) {
-        console.warn(`[photo] Kontext error: ${e.message} — using original`)
+      // Step 1: Upload the raw image to a temp path so fal.ai has a URL to read
+      if (imageData && falKey) {
+        const tempPath = `temp/${slugify(email)}-${Date.now()}.jpg`
+        await supabase.storage
+          .from('profile-photos')
+          .upload(tempPath, imgBuffer, { contentType: finalMime, upsert: true })
+        const { data: tempUrlData } = supabase.storage
+          .from('profile-photos')
+          .getPublicUrl(tempPath)
+        imageUrlForFal = tempUrlData.publicUrl
+        console.log(`[photo/preview] Temp upload for fal.ai ✓`)
       }
+
+      // Step 2: AI enhancement via FLUX.1 Kontext [pro]
+      if (falKey && imageUrlForFal) {
+        try {
+          console.log(`[photo/preview] Submitting to FLUX.1 Kontext [pro] for ${email} (attempt ${attempt})...`)
+          const falRes = await fetch('https://fal.run/fal-ai/flux-pro/kontext', {
+            method: 'POST',
+            headers: { 'Authorization': `Key ${falKey}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              image_url: imageUrlForFal,
+              prompt: HEADSHOT_PROMPT,
+              negative_prompt: HEADSHOT_NEGATIVE,
+              aspect_ratio: '1:1',
+              image_size: { width: 676, height: 696 },
+              guidance_scale: 3.5,
+              num_inference_steps: 28,
+              output_format: 'jpeg'
+            })
+          })
+
+          if (falRes.ok) {
+            const falData = await falRes.json()
+            const outputUrl = falData?.images?.[0]?.url
+            if (outputUrl) {
+              const dlRes = await fetch(outputUrl)
+              if (dlRes.ok) {
+                imgBuffer = Buffer.from(await dlRes.arrayBuffer())
+                finalMime = 'image/jpeg'
+                console.log(`[photo/preview] FLUX.1 Kontext complete ✓`)
+              }
+            }
+          } else {
+            const errText = await falRes.text()
+            console.warn(`[photo/preview] Kontext failed (${falRes.status}): ${errText} — using original`)
+          }
+        } catch (e) {
+          console.warn(`[photo/preview] Kontext error: ${e.message} — using original`)
+        }
+      }
+
+      if (!imgBuffer) return res.status(400).json({ error: 'No image data available for preview' })
+
+      // Step 3: Save to a unique preview path (not the permanent member path)
+      const previewPath = `previews/${slugify(email)}-preview-${attempt}-${Date.now()}.jpg`
+      const { error: previewUploadError } = await supabase.storage
+        .from('profile-photos')
+        .upload(previewPath, imgBuffer, { contentType: 'image/jpeg', upsert: true })
+
+      if (previewUploadError) {
+        return res.status(500).json({ error: `Preview upload failed: ${previewUploadError.message}` })
+      }
+
+      const { data: previewUrlData } = supabase.storage
+        .from('profile-photos')
+        .getPublicUrl(previewPath)
+
+      console.log(`[photo/preview] ✓ Preview ready for ${email} → ${previewUrlData.publicUrl}`)
+      return res.status(200).json({ ok: true, previewUrl: previewUrlData.publicUrl })
     }
 
-    // ── Step 3: If no buffer yet, download from URL ───────────────────────────
-    if (!imgBuffer && imageUrl) {
-      console.log(`[photo] Downloading image...`)
-      const dlRes = await fetch(imageUrl)
-      if (!dlRes.ok) return res.status(400).json({ error: `Image download failed: ${dlRes.status}` })
+    // ════════════════════════════════════════════════════════════════════════
+    // COMMIT MODE — write the final photo to the permanent path and update
+    // the member record. Two sub-cases:
+    //   (a) AI commit: previewUrl already has the enhanced image in storage;
+    //       just copy/re-upload those bytes to the permanent path.
+    //   (b) Original commit: imageData is the raw upload; enhance=false means
+    //       skip AI and save as-is.
+    // ════════════════════════════════════════════════════════════════════════
+
+    let imgBuffer = null
+    let finalMime = 'image/jpeg'
+
+    if (mode === 'commit' && previewUrl) {
+      // (a) AI commit — download the already-generated preview from storage
+      console.log(`[photo/commit] Fetching AI preview for permanent save...`)
+      const dlRes = await fetch(previewUrl.split('?')[0]) // strip any cache-bust param
+      if (!dlRes.ok) return res.status(400).json({ error: `Preview fetch failed: ${dlRes.status}` })
       imgBuffer = Buffer.from(await dlRes.arrayBuffer())
-      finalMime = dlRes.headers.get('content-type') || 'image/jpeg'
+      finalMime = 'image/jpeg'
+      console.log(`[photo/commit] AI preview fetched ✓`)
+    } else {
+      // (b) Original or legacy commit — use the uploaded image bytes directly
+      let imageUrlForDownload = photoUrl || null
+
+      if (imageData) {
+        imgBuffer = Buffer.from(imageData, 'base64')
+        finalMime = mimeType || 'image/jpeg'
+      }
+
+      // Legacy path: enhance=true with no mode field (old direct-save behavior).
+      // Also handles the edge case where photoUrl is provided instead of imageData.
+      if (enhance && falKey && (imageUrlForDownload || imageData)) {
+        if (imageData && !imageUrlForDownload) {
+          // Need a public URL for fal.ai — temp upload first
+          const tempPath = `temp/${slugify(email)}-${Date.now()}.jpg`
+          await supabase.storage
+            .from('profile-photos')
+            .upload(tempPath, imgBuffer, { contentType: finalMime, upsert: true })
+          const { data: tempUrlData } = supabase.storage
+            .from('profile-photos')
+            .getPublicUrl(tempPath)
+          imageUrlForDownload = tempUrlData.publicUrl
+          console.log(`[photo/commit] Temp upload for fal.ai ✓`)
+        }
+
+        try {
+          console.log(`[photo/commit] Submitting to FLUX.1 Kontext [pro] for ${email}...`)
+          const falRes = await fetch('https://fal.run/fal-ai/flux-pro/kontext', {
+            method: 'POST',
+            headers: { 'Authorization': `Key ${falKey}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              image_url: imageUrlForDownload,
+              prompt: HEADSHOT_PROMPT,
+              negative_prompt: HEADSHOT_NEGATIVE,
+              aspect_ratio: '1:1',
+              image_size: { width: 676, height: 696 },
+              guidance_scale: 3.5,
+              num_inference_steps: 28,
+              output_format: 'jpeg'
+            })
+          })
+
+          if (falRes.ok) {
+            const falData = await falRes.json()
+            const outputUrl = falData?.images?.[0]?.url
+            if (outputUrl) {
+              const dlRes = await fetch(outputUrl)
+              if (dlRes.ok) {
+                imgBuffer = Buffer.from(await dlRes.arrayBuffer())
+                finalMime = 'image/jpeg'
+                console.log(`[photo/commit] FLUX.1 Kontext complete ✓`)
+              }
+            }
+          } else {
+            const errText = await falRes.text()
+            console.warn(`[photo/commit] Kontext failed (${falRes.status}): ${errText} — using original`)
+          }
+        } catch (e) {
+          console.warn(`[photo/commit] Kontext error: ${e.message} — using original`)
+        }
+      }
+
+      // If still no buffer (photoUrl-only path), download it now
+      if (!imgBuffer && imageUrlForDownload) {
+        console.log(`[photo/commit] Downloading image...`)
+        const dlRes = await fetch(imageUrlForDownload)
+        if (!dlRes.ok) return res.status(400).json({ error: `Image download failed: ${dlRes.status}` })
+        imgBuffer = Buffer.from(await dlRes.arrayBuffer())
+        finalMime = dlRes.headers.get('content-type') || 'image/jpeg'
+      }
     }
 
     if (!imgBuffer) return res.status(400).json({ error: 'No image data available' })
 
-    // ── Step 4: Upload to Supabase Storage ────────────────────────────────────
-    console.log(`[photo] Uploading as ${filename}...`)
+    // ── Upload to permanent Supabase Storage path ─────────────────────────
+    console.log(`[photo/commit] Uploading as ${filename}...`)
     const { error: uploadError } = await supabase.storage
       .from('profile-photos')
       .upload(filename, imgBuffer, { contentType: 'image/jpeg', upsert: true })
@@ -133,14 +245,11 @@ export default async function handler(req, res) {
     if (uploadError) return res.status(500).json({ error: `Upload failed: ${uploadError.message}` })
 
     const { data: urlData } = supabase.storage.from('profile-photos').getPublicUrl(filename)
-    // The filename is deterministic (firstname-lastname-jobtitle-city.jpg) and we
-    // upload with upsert:true, so the storage path/URL is byte-identical across
-    // re-uploads. Browsers + the CDN would then serve the CACHED old image even
-    // though new bytes are in storage. Append a version param so each save yields
-    // a distinct URL and the new photo shows immediately.
+    // Append version param so each save yields a distinct URL — prevents browsers
+    // and the CDN from serving a stale cached photo after replacement.
     const permanentUrl = `${urlData.publicUrl}?v=${Date.now()}`
 
-    // ── Step 5: Update member record ──────────────────────────────────────────
+    // ── Update member record ───────────────────────────────────────────────
     const { error: updateError } = await supabase
       .from('members')
       .update({ profile_photo: permanentUrl })
@@ -149,8 +258,7 @@ export default async function handler(req, res) {
     if (updateError) return res.status(500).json({ error: `Member update failed: ${updateError.message}` })
 
     // On-demand revalidate the public directory page so the new photo shows
-    // within seconds. Best-effort — never fails the save. (A photo change can't
-    // change the slug, so we look it up from the member's current name/location.)
+    // within seconds. Best-effort — never fails the save.
     try {
       const { data: m } = await supabase
         .from('members')
@@ -160,7 +268,7 @@ export default async function handler(req, res) {
       if (m) await revalidateDirectorySlugs([slugForMember(m)])
     } catch { /* non-fatal */ }
 
-    console.log(`[photo] ✓ Complete for ${email} → ${permanentUrl}`)
+    console.log(`[photo/commit] ✓ Complete for ${email} → ${permanentUrl}`)
     return res.status(200).json({ ok: true, email, filename, profile_photo: permanentUrl, alt_text: altText })
 
   } catch (err) {
