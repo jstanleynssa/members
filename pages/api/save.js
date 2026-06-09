@@ -1,6 +1,8 @@
+// pages/api/save.js
 import { createServerSupabaseClient } from '@supabase/auth-helpers-nextjs'
 import { createClient } from '@supabase/supabase-js'
 import { slugForMember, revalidateDirectorySlugs } from '../../lib/revalidateDirectory'
+import { syncContactToKajabi } from '../../lib/kajabi-sync'
 
 // Normalize a user-entered URL: accept bare domains ("www.site.com",
 // "site.com") and prepend https:// so the stored value is a valid link.
@@ -10,9 +12,9 @@ function normalizeUrl(value) {
   if (value == null) return value
   const v = String(value).trim()
   if (!v) return ''
-  if (/^https?:\/\//i.test(v)) return v          // already has scheme
-  if (/^[\w.-]+\.[a-z]{2,}(\/|$|\?)/i.test(v)) return 'https://' + v // bare domain
-  return v                                        // something else — leave as-is
+  if (/^https?:\/\//i.test(v)) return v
+  if (/^[\w.-]+\.[a-z]{2,}(\/|$|\?)/i.test(v)) return 'https://' + v
+  return v
 }
 
 export default async function handler(req, res) {
@@ -52,7 +54,7 @@ export default async function handler(req, res) {
       .eq('email', targetEmail)
       .single()
     if (prev) oldSlug = slugForMember(prev)
-  } catch { /* non-fatal; we'll still revalidate the new slug */ }
+  } catch { /* non-fatal */ }
 
   const { error } = await supabaseAdmin
     .from('members')
@@ -60,7 +62,7 @@ export default async function handler(req, res) {
       first_name, last_name, job_title, company,
       address, city, state, zip,
       phone, mobile_phone,
-      website: normalizeUrl(website),
+      website:      normalizeUrl(website),
       linkedin_url: normalizeUrl(linkedin_url),
       bio, financial_disclosure,
     })
@@ -72,6 +74,15 @@ export default async function handler(req, res) {
   // within seconds. Best-effort — never blocks or fails the save.
   const newSlug = slugForMember({ first_name, last_name, city, state })
   await revalidateDirectorySlugs([oldSlug, newSlug])
+
+  // ── Kajabi sync (best-effort, non-blocking) ────────────────────────────
+  // Push the fields Kajabi cares about to the contact record. Runs after the
+  // Supabase save so a Kajabi failure never prevents the member's data from
+  // being saved. Fields not relevant to Kajabi (bio, linkedin, disclosure)
+  // are intentionally omitted.
+  syncContactToKajabi(supabaseAdmin, targetEmail, {
+    first_name, last_name, phone, city, state, zip,
+  }).catch(err => console.warn('[save] Kajabi sync threw:', err.message))
 
   return res.status(200).json({ ok: true })
 }
