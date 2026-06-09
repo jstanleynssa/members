@@ -38,55 +38,35 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end()
 
   // ── Authentication ──────────────────────────────────────────────────────
-  // This route is excluded from the auth middleware so the session-less
-  // assessment intake can reach it, which means the handler MUST authenticate
-  // every request itself. Two legitimate callers:
-  //   1. A logged-in member (or admin) editing a photo in the portal —
-  //      identified by their Supabase session cookie.
-  //   2. The Kajabi → Zapier assessment intake — no session, authenticated
-  //      with a shared secret (PHOTO_INTAKE_SECRET), since it posts an
-  //      external S3 photoUrl. Fails closed if the secret is unset.
-  // Anything else is rejected.
+  // The only callers are the logged-in profile editor
+  // (members.nssapros.com/profile) and the admin member view — both
+  // authenticated by their Supabase session. A member can only edit their own
+  // row; an admin may target another member via an explicit body email.
+  // Anything without a session is rejected.
   const supabaseAuth = createServerSupabaseClient({ req, res })
   const { data: { session } } = await supabaseAuth.auth.getSession()
-
-  const intakeSecret = process.env.PHOTO_INTAKE_SECRET
-  const providedSecret = req.headers['x-intake-secret'] || req.body?.secret
-  const isIntake = !session && !!intakeSecret && providedSecret === intakeSecret
+  if (!session) return res.status(401).json({ error: 'Not authenticated' })
 
   const {
     email: bodyEmail, photoUrl, imageData, mimeType,
     enhance = true, mode, previewUrl, attempt = 0,
   } = req.body || {}
 
-  // Resolve the member this request is allowed to act on. A member is pinned
-  // to their own session email; an admin may target another via body email;
-  // the intake path uses the body email it was given.
-  let targetEmail = null
-  if (session) {
-    const isAdmin = session.user.email === ADMIN_EMAIL
-    targetEmail = isAdmin && bodyEmail ? bodyEmail : session.user.email
-  } else if (isIntake) {
-    targetEmail = bodyEmail
-  } else {
-    return res.status(401).json({ error: 'Not authenticated' })
+  const isAdmin = session.user.email === ADMIN_EMAIL
+  const targetEmail = isAdmin && bodyEmail ? bodyEmail : session.user.email
+
+  // Any caller-supplied URL we read back in must point at our own storage
+  // bucket — never an arbitrary URL — so the service-role fetch can't be
+  // turned into an SSRF request. (imageData is a base64 upload; no fetch.)
+  for (const u of [photoUrl, previewUrl]) {
+    if (u && !isOwnStorageUrl(u)) {
+      return res.status(400).json({ error: 'Invalid photo URL' })
+    }
   }
 
-  // External photoUrl fetches are only honored on the secret-gated intake path
-  // (Zapier's S3 upload). Session/browser callers send imageData or a previewUrl
-  // from our own storage — never an arbitrary URL — so photoUrl is ignored for
-  // them, removing the SSRF surface from the authenticated browser flow.
-  const externalPhotoUrl = isIntake ? photoUrl : null
-
-  const hasSource = externalPhotoUrl || imageData || previewUrl
+  const hasSource = photoUrl || imageData || previewUrl
   if (!targetEmail || !hasSource) {
     return res.status(400).json({ error: 'Missing email and photo source' })
-  }
-
-  // A commit from a previously-generated AI preview must reference our own
-  // storage bucket, never an external URL (SSRF guard).
-  if (mode === 'commit' && previewUrl && !isOwnStorageUrl(previewUrl)) {
-    return res.status(400).json({ error: 'Invalid preview URL' })
   }
 
   const supabase = createClient(
@@ -126,7 +106,7 @@ export default async function handler(req, res) {
     if (mode === 'preview') {
       let imgBuffer = imageData ? Buffer.from(imageData, 'base64') : null
       let finalMime = mimeType || 'image/jpeg'
-      let imageUrlForFal = externalPhotoUrl || null
+      let imageUrlForFal = photoUrl || null
 
       if (imageData && falKey) {
         const tempPath = `temp/${slugify(targetEmail)}-${Date.now()}.jpg`
@@ -217,7 +197,7 @@ export default async function handler(req, res) {
       console.log(`[photo/commit] AI preview fetched ✓`)
     } else {
       // (b) Original or legacy commit
-      let imageUrlForDownload = externalPhotoUrl || null
+      let imageUrlForDownload = photoUrl || null
 
       if (imageData) {
         imgBuffer = Buffer.from(imageData, 'base64')

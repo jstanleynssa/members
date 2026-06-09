@@ -14,10 +14,9 @@ export async function middleware(req) {
   const isKajabiSSO = pathname.startsWith('/api/auth/kajabi-sso')
   const isZoomWebhook = pathname === '/api/zoom-webhook'
   const isCeStatus = pathname.startsWith('/api/ce-status')
-  const isSavePhoto = pathname.startsWith('/api/save-profile-photo')
   const isInvite = pathname.startsWith('/api/invite')
 
-  if (isCallback || isPublic || isKajabiSSO || isZoomWebhook || isCeStatus || isSavePhoto || isInvite) {
+  if (isCallback || isPublic || isKajabiSSO || isZoomWebhook || isCeStatus || isInvite) {
     return res
   }
 
