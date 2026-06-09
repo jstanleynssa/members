@@ -84,14 +84,21 @@ export default async function handler(req, res) {
   const newSlug = slugForMember({ first_name, last_name, city, state })
   await revalidateDirectorySlugs([oldSlug, newSlug])
 
-  // ── Kajabi sync (best-effort, non-blocking) ────────────────────────────
+  // ── Kajabi sync (best-effort) ──────────────────────────────────────────
   // Push the fields Kajabi cares about to the contact record. Runs after the
   // Supabase save so a Kajabi failure never prevents the member's data from
-  // being saved. Fields not relevant to Kajabi (bio, linkedin, disclosure)
-  // are intentionally omitted.
-  syncContactToKajabi(supabaseAdmin, targetEmail, {
-    first_name, last_name, phone, city, state, zip,
-  }).catch(err => console.warn('[save] Kajabi sync threw:', err.message))
+  // being saved. Awaited (rather than fire-and-forget) so it actually
+  // completes on serverless — work left running after the response can be
+  // frozen/killed. The helper swallows its own errors, so awaiting can't fail
+  // the save; the try/catch is belt-and-suspenders. Fields not relevant to
+  // Kajabi (bio, linkedin, disclosure) are intentionally omitted.
+  try {
+    await syncContactToKajabi(supabaseAdmin, targetEmail, {
+      first_name, last_name, phone, city, state, zip,
+    })
+  } catch (err) {
+    console.warn('[save] Kajabi sync threw:', err.message)
+  }
 
   return res.status(200).json({ ok: true })
 }
