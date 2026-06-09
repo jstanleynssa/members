@@ -17,6 +17,20 @@ function normalizeUrl(value) {
   return v
 }
 
+// Strip HTML from a bio to plain text, preserving paragraph breaks as blank
+// lines. Bios are plain text everywhere now; sanitizing on write neutralizes
+// any injected markup (e.g. <img onerror=…>) before it can reach a render
+// surface such as the admin editor.
+function sanitizeBio(value) {
+  if (value == null) return value
+  return String(value)
+    .replace(/<\/(p|div)>/gi, '\n\n')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end()
 
@@ -63,7 +77,7 @@ export default async function handler(req, res) {
     phone, mobile_phone,
     website:      normalizeUrl(website),
     linkedin_url: normalizeUrl(linkedin_url),
-    bio, financial_disclosure,
+    bio: sanitizeBio(bio), financial_disclosure,
   }
   // Persist these only when the client actually sent a boolean, so an edit
   // that omits them (Simple Edit, intermediate wizard steps) never clobbers a

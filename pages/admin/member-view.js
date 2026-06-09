@@ -9,6 +9,19 @@ const IRMAA = { dark: '#AF2A35', medium: '#DE5B63', light: '#ED8E8E' }
 const GRAY  = { text: '#6b7280', bg: '#f3f4f6', border: '#e5e7eb' }
 const GREEN = { bg: '#f0fdf4', text: '#15803d', border: '#bbf7d0' }
 
+// Render advisor bios as plain text. A bio may contain legacy HTML (older
+// imports) or be plain text (recent edits); strip tags either way so the admin
+// view never executes stored markup. Paragraph breaks survive as blank lines
+// via white-space: pre-wrap on the container.
+function stripHtml(str) {
+  return (str || '')
+    .replace(/<\/(p|div)>/gi, '\n\n')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
 export async function getServerSideProps(context) {
   const supabaseServer = createServerSupabaseClient(context)
   const { data: { session } } = await supabaseServer.auth.getSession()
@@ -500,8 +513,9 @@ export default function MemberView({ member: initialMember, subs, viewEmail, sel
               {member.bio && (
                 <div style={{ borderTop: `1px solid ${GRAY.bg}`, paddingTop: '1.25rem' }}>
                   <p style={{ fontSize: '11px', fontWeight: 600, color: GRAY.text, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '10px' }}>Bio</p>
-                  <div style={{ fontSize: '13px', color: '#374151', lineHeight: 1.7, maxWidth: '700px' }}
-                    dangerouslySetInnerHTML={{ __html: member.bio }} />
+                  <div style={{ fontSize: '13px', color: '#374151', lineHeight: 1.7, maxWidth: '700px', whiteSpace: 'pre-wrap' }}>
+                    {stripHtml(member.bio)}
+                  </div>
                 </div>
               )}
               {member.financial_disclosure && (
