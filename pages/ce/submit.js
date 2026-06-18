@@ -57,6 +57,36 @@ export default function CESubmit({ member, userEmail, presetDesignation }) {
     setError(null)
 
     try {
+      // Block duplicate monthly-call submissions. The member call is one-per-month,
+      // and attendance is auto-credited via Zoom. If a monthly-call credit already
+      // exists for this member in this month, stop here with a friendly message
+      // rather than letting the DB unique index reject it with a raw error. This
+      // runs before the file upload and insert, so a blocked attempt does nothing.
+      if (form.ce_type === 'Monthly Member Call' && form.completion_date) {
+        const monthStart = form.completion_date.slice(0, 7) + '-01'  // 'YYYY-MM-01'
+        const nextMonth = new Date(monthStart + 'T12:00:00')
+        nextMonth.setMonth(nextMonth.getMonth() + 1)
+        const nextMonthStr = nextMonth.toISOString().slice(0, 10)
+
+        const { data: existing } = await supabase
+          .from('ce_submissions')
+          .select('id')
+          .ilike('email', userEmail)
+          .eq('ce_type', 'Monthly Member Call')
+          .gte('completion_date', monthStart)
+          .lt('completion_date', nextMonthStr)
+          .limit(1)
+
+        if (existing && existing.length > 0) {
+          const monthName = new Date(monthStart + 'T12:00:00')
+            .toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+          throw new Error(
+            `You're already credited for the ${monthName} member call — attendance is ` +
+            `logged automatically when you join, so there's no need to submit it manually.`
+          )
+        }
+      }
+
       let proof_url = null
       if (file) {
         const ext = file.name.split('.').pop()
