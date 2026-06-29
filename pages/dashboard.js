@@ -260,7 +260,7 @@ export default function Dashboard({ member, subs, selectedYear, availableYears, 
             <div style={{ background: 'white', border: `1px solid ${GRAY.border}`, borderRadius: '10px', padding: '1.5rem' }}>
               <p style={{ fontWeight: 600, marginBottom: '6px' }}>Earn Your NSSA® Designation</p>
               <p style={{ fontSize: '13px', color: GRAY.text, marginBottom: '1rem' }}>Get certified and join 1,700+ NSSA® advisors.</p>
-              <a href="https://nssapros.com/nssa-course" style={{ display: 'block', textAlign: 'center', padding: '9px', background: NSSA.dark, color: 'white', borderRadius: '6px', fontSize: '13px', fontWeight: 500, textDecoration: 'none' }}>
+              <a href="https://www.nssapros.com/offers/vwMC6viE/checkout" style={{ display: 'block', textAlign: 'center', padding: '9px', background: NSSA.dark, color: 'white', borderRadius: '6px', fontSize: '13px', fontWeight: 500, textDecoration: 'none' }}>
                 Enroll — 50% off
               </a>
             </div>
@@ -270,7 +270,7 @@ export default function Dashboard({ member, subs, selectedYear, availableYears, 
             <div style={{ background: 'white', border: `1px solid ${GRAY.border}`, borderRadius: '10px', padding: '1.5rem' }}>
               <p style={{ fontWeight: 600, marginBottom: '6px' }}>Earn Your IRMAACP™ Designation</p>
               <p style={{ fontSize: '13px', color: GRAY.text, marginBottom: '1rem' }}>Add IRMAA expertise to your practice.</p>
-              <a href="https://nssapros.com/irmaa-course" style={{ display: 'block', textAlign: 'center', padding: '9px', background: IRMAA.dark, color: 'white', borderRadius: '6px', fontSize: '13px', fontWeight: 500, textDecoration: 'none' }}>
+              <a href="https://www.nssapros.com/offers/mKoPXoDn/checkout" style={{ display: 'block', textAlign: 'center', padding: '9px', background: IRMAA.dark, color: 'white', borderRadius: '6px', fontSize: '13px', fontWeight: 500, textDecoration: 'none' }}>
                 Enroll — 50% off
               </a>
             </div>
