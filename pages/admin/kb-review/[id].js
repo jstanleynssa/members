@@ -327,7 +327,7 @@ export default function KBReviewDetail({ page, sourceMap }) {
         </div>
 
         <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-          <a href={`https://knowledge.nssapros.com/${currentPage.category}/${currentPage.slug}`} target="_blank" rel="noopener"
+          <a href={`https://knowledge.nssapros.com/preview/${currentPage.id}`} target="_blank" rel="noopener"
             style={{ color: '#8ECAEE', fontSize: 13, textDecoration: 'none' }}>Preview ↗</a>
           <button onClick={() => setShowSuperseded(true)} disabled={submitting}
             style={{ background: 'transparent', border: '1px solid #F87171', color: '#F87171', borderRadius: 6, padding: '7px 14px', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
