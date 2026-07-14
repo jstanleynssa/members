@@ -19,7 +19,7 @@ export default async function handler(req, res) {
 
   const { id, action, notes } = req.body
   if (!id || !action) return res.status(400).json({ error: 'id and action required' })
-  if (!['approve', 'changes'].includes(action)) return res.status(400).json({ error: 'action must be approve or changes' })
+  if (!['approve', 'changes', 'superseded'].includes(action)) return res.status(400).json({ error: 'action must be approve, changes, or superseded' })
 
   const supabaseAdmin = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -76,5 +76,20 @@ export default async function handler(req, res) {
 
     if (error) return res.status(500).json({ error: error.message })
     return res.status(200).json({ ok: true, status: 'draft' })
+  }
+
+  if (action === 'superseded') {
+    const { deprecation_note } = req.body
+    const { error } = await supabaseAdmin
+      .from('reference_pages')
+      .update({
+        status: 'superseded',
+        deprecation_note: deprecation_note || null,
+        date_modified: today,
+      })
+      .eq('id', id)
+
+    if (error) return res.status(500).json({ error: error.message })
+    return res.status(200).json({ ok: true, status: 'superseded' })
   }
 }
