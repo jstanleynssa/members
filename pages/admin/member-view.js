@@ -118,6 +118,8 @@ export default function MemberView({ member: initialMember, subs, viewEmail, sel
 
   const [member, setMember]   = useState(initialMember)
   const [editing, setEditing] = useState(false)
+  const [excludeLoading, setExcludeLoading] = useState(false)
+  const [excludeMsg, setExcludeMsg]         = useState(null)
   const [form, setForm]       = useState({
     first_name: initialMember?.first_name || '', last_name: initialMember?.last_name || '',
     job_title: initialMember?.job_title || '', company: initialMember?.company || '',
@@ -148,6 +150,24 @@ export default function MemberView({ member: initialMember, subs, viewEmail, sel
   const td = { padding: '10px 14px', fontSize: '13px', verticalAlign: 'middle', borderTop: `1px solid ${GRAY.bg}` }
 
   function handle(field) { return e => setForm(f => ({ ...f, [field]: e.target.value })) }
+
+  async function handleToggleExclude() {
+    const newExclude = !member.admin_directory_exclude
+    setExcludeLoading(true); setExcludeMsg(null)
+    try {
+      const res  = await fetch('/api/admin/set-directory-exclude', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: viewEmail, exclude: newExclude }),
+      })
+      const data = await res.json()
+      if (!res.ok || !data.ok) throw new Error(data.error || 'Failed')
+      setMember(m => ({ ...m, admin_directory_exclude: newExclude }))
+      setExcludeMsg(newExclude ? 'Hidden from directory.' : 'Restored to directory.')
+      setTimeout(() => setExcludeMsg(null), 4000)
+    } catch (err) { setExcludeMsg('Error: ' + err.message) }
+    finally { setExcludeLoading(false) }
+  }
 
   async function handleSave() {
     setSaving(true); setSaveMsg(null)
@@ -215,9 +235,27 @@ export default function MemberView({ member: initialMember, subs, viewEmail, sel
         <Link href="/admin/members" style={{ fontSize: '13px', color: NSSA.medium, textDecoration: 'none' }}>← All Members</Link>
         <span style={{ color: GRAY.border }}>|</span>
         <span style={{ fontSize: '13px', color: GRAY.text }}>{fullName}</span>
-        <span style={{ marginLeft: 'auto', fontSize: '11px', padding: '2px 8px', borderRadius: '4px', background: member.is_active !== false ? '#f0fdf4' : GRAY.bg, color: member.is_active !== false ? '#15803d' : GRAY.text, border: `1px solid ${member.is_active !== false ? '#bbf7d0' : GRAY.border}` }}>
-          {member.is_active !== false ? 'Active' : 'Inactive'}
-        </span>
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', background: member.is_active !== false ? '#f0fdf4' : GRAY.bg, color: member.is_active !== false ? '#15803d' : GRAY.text, border: `1px solid ${member.is_active !== false ? '#bbf7d0' : GRAY.border}` }}>
+            {member.is_active !== false ? 'Active' : 'Inactive'}
+          </span>
+          {member.admin_directory_exclude && (
+            <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca' }}>
+              🚫 Hidden from directory
+            </span>
+          )}
+          {excludeMsg && (
+            <span style={{ fontSize: '11px', color: excludeMsg.startsWith('Error') ? '#dc2626' : '#15803d' }}>{excludeMsg}</span>
+          )}
+          <button
+            onClick={handleToggleExclude}
+            disabled={excludeLoading}
+            title={member.admin_directory_exclude ? 'Restore this profile to the public directory' : 'Hide this profile from the public directory'}
+            style={{ fontSize: '11px', padding: '3px 10px', borderRadius: '5px', border: `1px solid ${member.admin_directory_exclude ? '#bbf7d0' : '#fecaca'}`, background: member.admin_directory_exclude ? '#f0fdf4' : '#fef2f2', color: member.admin_directory_exclude ? '#15803d' : '#dc2626', cursor: excludeLoading ? 'not-allowed' : 'pointer', fontWeight: 500, opacity: excludeLoading ? 0.6 : 1 }}
+          >
+            {excludeLoading ? '…' : member.admin_directory_exclude ? '✓ Restore to directory' : 'Hide from directory'}
+          </button>
+        </div>
       </div>
 
       <div style={{ maxWidth: '900px', margin: '0 auto', padding: '2rem' }}>

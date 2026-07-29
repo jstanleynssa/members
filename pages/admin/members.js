@@ -28,7 +28,7 @@ export async function getServerSideProps(context) {
   while (true) {
     const { data, error: fetchError } = await supabaseAdmin
       .from('members')
-      .select('email, first_name, last_name, nssa_certified, irmaa_certified, nssa_cert_date, irmaa_cert_date, is_active, state, company, bio')
+      .select('email, first_name, last_name, nssa_certified, irmaa_certified, nssa_cert_date, irmaa_cert_date, is_active, state, company, bio, admin_directory_exclude')
       .or('nssa_certified.eq.true,irmaa_certified.eq.true')
       .order('last_name', { ascending: true })
       .range(from, from + 999)
@@ -97,6 +97,7 @@ export async function getServerSideProps(context) {
       irmaaStatus,
       lastDate: ce.lastDate,
       hasProfile,
+      adminDirectoryExclude: !!m.admin_directory_exclude,
     }
   })
 
@@ -358,6 +359,7 @@ export default function AdminMembers({ rows, selectedYear, availableYears, curre
                 <td style={{ ...td, fontWeight: 500 }}>
                   {r.lastName || <span style={{ color: GRAY.text }}>—</span>}
                   {!r.isActive && <span style={{ fontSize: '10px', marginLeft: '6px', color: GRAY.text, background: GRAY.bg, padding: '1px 5px', borderRadius: '3px' }}>inactive</span>}
+                  {r.adminDirectoryExclude && <span style={{ fontSize: '10px', marginLeft: '6px', color: '#dc2626', background: '#fef2f2', padding: '1px 5px', borderRadius: '3px', border: '1px solid #fecaca' }}>dir. hidden</span>}
                 </td>
                 <td style={{ ...td, color: GRAY.text, fontSize: '12px' }}>
                   {r.email}
