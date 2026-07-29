@@ -18,6 +18,12 @@ export async function middleware(req) {
   const isInvite = pathname.startsWith('/api/invite')
   const isCeApproval = pathname.startsWith('/api/ce-approval-notify')
 
+  // Noindex all auth/utility paths — these are never meant to appear in search results.
+  const isNoindex = isPublic || isCallback || isKajabiSSO || isInvite
+  if (isNoindex) {
+    res.headers.set('X-Robots-Tag', 'noindex, nofollow')
+  }
+
   if (isCallback || isPublic || isKajabiSSO || isZoomWebhook || isCeStatus || isSavePhoto || isInvite || isCeApproval) {
     return res
   }
