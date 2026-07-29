@@ -267,6 +267,7 @@ export default function AdminMembers({ rows, selectedYear, availableYears, curre
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '10px' }}>
           <img src="/nssa-irmaa-logos.png" alt="logos" style={{ height: '50px', width: 'auto' }} />
           <Link href="/dashboard" style={{ fontSize: '12px', color: NSSA.medium, textDecoration: 'none' }}>← Member Portal</Link>
+          <Link href="/admin/blog-review" style={{ fontSize: '12px', color: NSSA.medium, textDecoration: 'none' }}>📝 Blog Review</Link>
         </div>
       </div>
 
