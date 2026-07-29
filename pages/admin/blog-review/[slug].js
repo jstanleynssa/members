@@ -184,7 +184,7 @@ export default function PostReview({ post, claims: initialClaims }) {
         )}
         {triageSaving && <span style={{ fontSize: 12, color: '#9ca3af' }}>Saving…</span>}
         <a
-          href={`https://blog-lya0imelh-nssapros.vercel.app/blog/${post.slug}`}
+          href={`https://blog-nssapros.vercel.app/blog/${post.slug}`}
           target="_blank" rel="noopener noreferrer"
           style={{ marginLeft: 'auto', fontSize: 12, color: '#13405E' }}
         >
