@@ -39,7 +39,7 @@ const STYLES = {
     color: active ? '#fff' : '#374151',
   }),
   table:     { width: '100%', borderCollapse: 'collapse', fontSize: 13 },
-  th:        { textAlign: 'left', padding: '10px 12px', borderBottom: '2px solid #e5e7eb', color: '#6b7280', fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' },
+  th:        { textAlign: 'left', padding: '10px 12px', borderBottom: '2px solid #e5e7eb', color: '#6b7280', fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' },
   td:        { padding: '10px 12px', borderBottom: '1px solid #f3f4f6', verticalAlign: 'middle' },
   badge:     (color) => ({ display: 'inline-block', padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 600, background: color.bg, color: color.text }),
   link:      { color: '#13405E', textDecoration: 'none', fontWeight: 500 },
@@ -58,14 +58,34 @@ const STYLES = {
 export default function BlogReview({ posts, counts }) {
   const [filter, setFilter] = useState('all')
   const [triage, setTriage]  = useState('all')
+  const [sortCol, setSortCol] = useState('mismatch')
+  const [sortDir, setSortDir] = useState('desc')
 
-  const filtered = posts.filter(p => {
-    const hasBlocker = p.mismatch > 0 || p.superseded > 0
-    if (filter === 'blockers' && !hasBlocker) return false
-    if (filter === 'clean' && hasBlocker) return false
-    if (triage !== 'all' && (p.triage_bucket || 'null') !== triage) return false
-    return true
-  })
+  function handleSort(col) {
+    if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortCol(col); setSortDir(col === 'title' ? 'asc' : 'desc') }
+  }
+
+  function sortIndicator(col) {
+    if (sortCol !== col) return <span style={{ color: '#d1d5db', marginLeft: 4 }}>↕</span>
+    return <span style={{ marginLeft: 4 }}>{sortDir === 'asc' ? '↑' : '↓'}</span>
+  }
+
+  const filtered = posts
+    .filter(p => {
+      const hasBlocker = p.mismatch > 0 || p.superseded > 0
+      if (filter === 'blockers' && !hasBlocker) return false
+      if (filter === 'clean' && hasBlocker) return false
+      if (triage !== 'all' && (p.triage_bucket || 'null') !== triage) return false
+      return true
+    })
+    .sort((a, b) => {
+      let aVal = a[sortCol] ?? ''
+      let bVal = b[sortCol] ?? ''
+      if (sortCol === 'triage_bucket') { aVal = a.triage_bucket || ''; bVal = b.triage_bucket || '' }
+      const cmp = typeof aVal === 'number' ? aVal - bVal : String(aVal).localeCompare(String(bVal))
+      return sortDir === 'asc' ? cmp : -cmp
+    })
 
   return (
     <div style={STYLES.container}>
@@ -112,13 +132,13 @@ export default function BlogReview({ posts, counts }) {
       <table style={STYLES.table}>
         <thead>
           <tr>
-            <th style={STYLES.th}>Post</th>
-            <th style={{ ...STYLES.th, textAlign: 'center' }}>✅</th>
-            <th style={{ ...STYLES.th, textAlign: 'center' }}>🟡</th>
-            <th style={{ ...STYLES.th, textAlign: 'center' }}>🔴 Mismatch</th>
-            <th style={{ ...STYLES.th, textAlign: 'center' }}>🟣 Superseded</th>
-            <th style={STYLES.th}>Triage</th>
-            <th style={STYLES.th}></th>
+            <th style={STYLES.th} onClick={() => handleSort('title')}>Post{sortIndicator('title')}</th>
+            <th style={{ ...STYLES.th, textAlign: 'center' }} onClick={() => handleSort('verified')}>✅{sortIndicator('verified')}</th>
+            <th style={{ ...STYLES.th, textAlign: 'center' }} onClick={() => handleSort('unsupported')}>🟡{sortIndicator('unsupported')}</th>
+            <th style={{ ...STYLES.th, textAlign: 'center' }} onClick={() => handleSort('mismatch')}>🔴 Mismatch{sortIndicator('mismatch')}</th>
+            <th style={{ ...STYLES.th, textAlign: 'center' }} onClick={() => handleSort('superseded')}>🟣 Superseded{sortIndicator('superseded')}</th>
+            <th style={STYLES.th} onClick={() => handleSort('triage_bucket')}>Triage{sortIndicator('triage_bucket')}</th>
+            <th style={{ ...STYLES.th, cursor: 'default' }}></th>
           </tr>
         </thead>
         <tbody>
