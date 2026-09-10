@@ -46,8 +46,8 @@ export async function getServerSideProps(context) {
   const { data: member } = await supabaseAdmin
     .from('members')
     .select('email, first_name, last_name, nssa_certified, irmaa_certified, nssa_cert_date, irmaa_cert_date, nssa_number, irmaa_number, profile_photo, job_title, company, address, city, state, zip, phone, mobile_phone, website, linkedin_url, bio, financial_disclosure, is_active')
-    .eq('email', session.user.email)
-    .single()
+    .ilike('email', session.user.email)
+    .maybeSingle()
 
   // Guard: must be a certified, active member
   if (!member || (!member.nssa_certified && !member.irmaa_certified)) {
@@ -277,6 +277,32 @@ export default function Dashboard({ member, subs, selectedYear, availableYears, 
           )}
         </div>
 
+        {/* Watch Replays CTA */}
+        <div style={{ marginBottom: '1.5rem' }}>
+          <div style={{
+            background: 'white', borderRadius: '10px',
+            border: `1px solid ${GRAY.border}`,
+            padding: '1.25rem 1.5rem',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap'
+          }}>
+            <div>
+              <p style={{ fontWeight: 600, color: '#111', margin: '0 0 4px', fontSize: '14px' }}>
+                🎬 Watch Recorded Session Replays
+              </p>
+              <p style={{ fontSize: '13px', color: GRAY.text, margin: 0 }}>
+                Missed a live call? Watch the replay, pass a short quiz, and earn 1 CE hour.
+              </p>
+            </div>
+            <Link href="/ce/replays" style={{
+              padding: '9px 18px', background: NSSA.dark, color: 'white',
+              borderRadius: '7px', fontSize: '13px', fontWeight: 600,
+              textDecoration: 'none', whiteSpace: 'nowrap', flexShrink: 0
+            }}>
+              Watch Replays →
+            </Link>
+          </div>
+        </div>
+
         {/* CE Submission History */}
         <div style={{ marginBottom: '2rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
@@ -369,18 +395,31 @@ export default function Dashboard({ member, subs, selectedYear, availableYears, 
               Member Profile
             </h2>
 
-            {/* Cert badges (read-only) — certification number shown prominently */}
-            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+            {/* Cert badges + downloads + good standing letter — all on one row */}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center', justifyContent: 'flex-end' }}>
               {member.nssa_certified && (
-                <span style={{ fontSize: '11px', padding: '3px 10px', borderRadius: '4px', background: NSSA_BG, color: NSSA.medium, border: `1px solid ${NSSA.light}` }}>
+                <span style={{ fontSize: '11px', padding: '4px 12px', borderRadius: '6px', background: NSSA_BG, color: NSSA.medium, border: `1px solid ${NSSA.light}`, fontWeight: 500, whiteSpace: 'nowrap' }}>
                   NSSA® Certified{member.nssa_number ? <> · <strong style={{ fontWeight: 700 }}>#{member.nssa_number}</strong></> : ''}
                 </span>
               )}
+              {member.nssa_certified && member.nssa_number && (
+                <a href="/api/cert?type=nssa" download style={{ fontSize: '11px', padding: '4px 12px', borderRadius: '6px', background: NSSA_BG, color: NSSA.medium, border: `1px solid ${NSSA.light}`, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px', fontWeight: 500, whiteSpace: 'nowrap' }}>
+                  ⬇ Download NSSA® Certificate
+                </a>
+              )}
               {member.irmaa_certified && (
-                <span style={{ fontSize: '11px', padding: '3px 10px', borderRadius: '4px', background: IRMAA_BG, color: IRMAA.medium, border: `1px solid ${IRMAA.light}` }}>
+                <span style={{ fontSize: '11px', padding: '4px 12px', borderRadius: '6px', background: IRMAA_BG, color: IRMAA.medium, border: `1px solid ${IRMAA.light}`, fontWeight: 500, whiteSpace: 'nowrap' }}>
                   IRMAACP™ Certified{member.irmaa_number ? <> · <strong style={{ fontWeight: 700 }}>#{member.irmaa_number}</strong></> : ''}
                 </span>
               )}
+              {member.irmaa_certified && member.irmaa_number && (
+                <a href="/api/cert?type=irmaa" download style={{ fontSize: '11px', padding: '4px 12px', borderRadius: '6px', background: IRMAA_BG, color: IRMAA.medium, border: `1px solid ${IRMAA.light}`, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px', fontWeight: 500, whiteSpace: 'nowrap' }}>
+                  ⬇ Download IRMAACP™ Certificate
+                </a>
+              )}
+              <a href="/api/good-standing-letter" download style={{ fontSize: '11px', padding: '4px 12px', borderRadius: '6px', background: '#f1f5f9', color: NSSA.dark, border: `1px solid #cbd5e1`, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px', fontWeight: 500, whiteSpace: 'nowrap' }}>
+                📄 Good Standing Letter
+              </a>
             </div>
           </div>
 

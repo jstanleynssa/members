@@ -40,16 +40,26 @@ export async function getServerSideProps(context) {
   }
   const members = allMembers
 
-  // Fetch CE hours for selected year
-  const { data: ceData } = await supabaseAdmin
-    .from('ce_submissions')
-    .select('email, designation, hours_earned, completion_date')
-    .eq('status', 'approved')
-    .eq('year', selectedYear)
+  // Fetch CE hours for selected year — paginated to bypass 1000-row Supabase limit
+  let allCe = []
+  let ceFrom = 0
+  while (true) {
+    const { data: cePage, error: ceError } = await supabaseAdmin
+      .from('ce_submissions')
+      .select('email, designation, hours_earned, completion_date')
+      .eq('status', 'approved')
+      .eq('year', selectedYear)
+      .range(ceFrom, ceFrom + 999)
+    if (ceError) { console.error('CE fetch error:', ceError.message); break }
+    if (!cePage || cePage.length === 0) break
+    allCe = allCe.concat(cePage)
+    if (cePage.length < 1000) break
+    ceFrom += 1000
+  }
 
   // Build hours lookup
   const hoursMap = {}
-  for (const sub of (ceData || [])) {
+  for (const sub of allCe) {
     if (!hoursMap[sub.email]) hoursMap[sub.email] = { nssa: 0, irmaa: 0, lastDate: null }
     const h = Number(sub.hours_earned)
     if (sub.designation === 'NSSA' || sub.designation === 'both') hoursMap[sub.email].nssa += h

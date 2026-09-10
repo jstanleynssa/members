@@ -17,6 +17,10 @@ import { createServerSupabaseClient } from '@supabase/auth-helpers-nextjs'
 import { createClient } from '@supabase/supabase-js'
 import { useState, useRef } from 'react'
 import Link from 'next/link'
+import dynamic from 'next/dynamic'
+
+const PartnerNetwork = dynamic(() => import('../components/PartnerNetwork'), { ssr: false })
+const CelpTeaser = dynamic(() => import('../components/CelpTeaser'), { ssr: false })
 
 const NSSA  = { dark: '#13405E', medium: '#1C80BC', light: '#8ECAEE' }
 const IRMAA = { dark: '#AF2A35', medium: '#DE5B63', light: '#ED8E8E' }
@@ -1053,6 +1057,11 @@ export default function ProfilePage({ member, userEmail, mode, noMembership, log
         {mode === 'edit'
           ? <SimpleEdit member={member} userEmail={userEmail} />
           : <BuildWizard member={member} userEmail={userEmail} certLabel={certLabel} />}
+
+        {/* Partner Network — CELP members only */}
+        {member.celp_certified
+          ? <PartnerNetwork memberZip={member.zip || ''} memberState={member.state || ''} />
+          : <CelpTeaser />}
       </div>
     </div>
   )

@@ -123,12 +123,13 @@ export default async function handler(req, res) {
   console.log(`[zoom-webhook] ${email} total duration: ${totalDuration}s, qualifies: ${qualifies}`)
 
   if (existing) {
-    // Update accumulated duration — approve once threshold is crossed
+    // Update accumulated duration; promote to approved once threshold is crossed
+    const newStatus = qualifies ? 'approved' : existing.status
     const { error } = await supabase
       .from('ce_submissions')
       .update({
         zoom_duration_seconds: totalDuration,
-        status: qualifies ? 'approved' : existing.status,
+        status: newStatus,
         designation // recalculate in case hours changed since last session
       })
       .eq('id', existing.id)
@@ -137,7 +138,7 @@ export default async function handler(req, res) {
     return res.status(200).json({ ok: true, action: 'updated', email, totalDuration, qualifies })
 
   } else {
-    // Create new record
+    // Create new record — pending until >=40 min threshold is crossed
     const { error } = await supabase.from('ce_submissions').insert({
       email,
       first_name: member.first_name || '',
@@ -148,7 +149,7 @@ export default async function handler(req, res) {
       ce_type: 'Monthly Member Call',
       designation,
       source: 'zoom_auto',
-      status: qualifies ? 'approved' : 'pending',
+      status: qualifies ? 'approved' : 'pending', // approved only once >=40 min accumulated
       zoom_meeting_id: meetingUuid,
       zoom_duration_seconds: sessionDuration
     })

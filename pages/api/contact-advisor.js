@@ -7,7 +7,7 @@ const RESEND_ENDPOINT = 'https://api.resend.com/emails'
 
 // From address must be on a Resend-verified domain (e.g. mail.nssapros.com).
 const FROM = 'NSSA Advisor Directory <directory@updates.nssapros.com>'
-const SITE = 'https://directory.nssapros.com'
+const SITE = 'https://www.nssapros.com/directory'
 
 function escapeHtml(str) {
   return String(str || '')

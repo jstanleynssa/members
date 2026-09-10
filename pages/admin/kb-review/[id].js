@@ -16,18 +16,33 @@ const NSSA = { light: '#8ECAEE', medium: '#1C80BC', dark: '#13405E' }
 const IRMAA = { light: '#ED8E8E', medium: '#DE5B63', dark: '#AF2A35' }
 const GRAY = { text: '#6b7280', bg: '#f3f4f6', border: '#e5e7eb' }
 
+const ADMIN_EMAIL = 'jstanley@nssapros.com'
+
 export async function getServerSideProps(context) {
   const supabaseServer = createServerSupabaseClient(context)
   const { data: { session } } = await supabaseServer.auth.getSession()
   if (!session) return { redirect: { destination: '/login', permanent: false } }
 
-  const isAdmin = session.user.email === 'jstanley@nssapros.com'
-  if (!isAdmin) return { redirect: { destination: '/dashboard', permanent: false } }
-
   const supabaseAdmin = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
     process.env.SUPABASE_SERVICE_ROLE_KEY
   )
+
+  const isAdmin = session.user.email === ADMIN_EMAIL
+  const { data: reviewerRow } = await supabaseAdmin
+    .from('kb_reviewers')
+    .select('display_name, active')
+    .eq('email', session.user.email)
+    .single()
+
+  if (!isAdmin && !reviewerRow?.active) {
+    return { redirect: { destination: '/dashboard', permanent: false } }
+  }
+
+  const reviewer = {
+    email: session.user.email,
+    displayName: isAdmin ? 'Jason Stanley' : reviewerRow.display_name,
+  }
 
   const { id } = context.params
   const { data: page, error } = await supabaseAdmin
@@ -51,7 +66,7 @@ export async function getServerSideProps(context) {
   const sourceMap = {}
   for (const doc of sourceDocs) sourceMap[doc.section_number] = doc
 
-  return { props: { page, sourceMap } }
+  return { props: { page, sourceMap, reviewer } }
 }
 
 // ─── Edit modal ───────────────────────────────────────────────────────────────
@@ -208,7 +223,7 @@ function EditModal({ page, onSave, onCancel, saving }) {
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 
-export default function KBReviewDetail({ page, sourceMap }) {
+export default function KBReviewDetail({ page, sourceMap, reviewer }) {
   const router = useRouter()
   const [showEdit, setShowEdit] = useState(false)
   const [showSuperseded, setShowSuperseded] = useState(false)
@@ -225,7 +240,7 @@ export default function KBReviewDetail({ page, sourceMap }) {
       const res = await fetch('/api/admin/kb-decision', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: currentPage.id, action, ...extra }),
+        body: JSON.stringify({ id: currentPage.id, action, approved_by: reviewer.displayName, ...extra }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Unknown error')
@@ -242,7 +257,7 @@ export default function KBReviewDetail({ page, sourceMap }) {
       const res = await fetch('/api/admin/kb-update', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: currentPage.id, fields, approve: andApprove }),
+        body: JSON.stringify({ id: currentPage.id, fields, approve: andApprove, approved_by: reviewer.displayName }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Unknown error')

@@ -11,7 +11,7 @@
 
 const RESEND_ENDPOINT = 'https://api.resend.com/emails'
 const FROM = 'NSSA Advisor Directory <directory@updates.nssapros.com>'
-const DIRECTORY = 'https://directory.nssapros.com'
+const DIRECTORY = 'https://www.nssapros.com/directory'
 
 function isEmail(str) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(str || '').trim())

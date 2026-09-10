@@ -17,7 +17,7 @@ export default async function handler(req, res) {
   if (!session) return res.status(401).json({ error: 'Not authenticated' })
   if (session.user.email !== 'jstanley@nssapros.com') return res.status(403).json({ error: 'Not authorized' })
 
-  const { id, action, notes } = req.body
+  const { id, action, notes, approved_by } = req.body
   if (!id || !action) return res.status(400).json({ error: 'id and action required' })
   if (!['approve', 'changes', 'superseded'].includes(action)) return res.status(400).json({ error: 'action must be approve, changes, or superseded' })
 
@@ -35,6 +35,8 @@ export default async function handler(req, res) {
         status: 'approved',
         source_last_verified: today,
         date_modified: today,
+        approved_by: approved_by || null,
+        approved_at: new Date().toISOString(),
       })
       .eq('id', id)
 
@@ -86,6 +88,8 @@ export default async function handler(req, res) {
         status: 'superseded',
         deprecation_note: deprecation_note || null,
         date_modified: today,
+        approved_by: approved_by || null,
+        approved_at: new Date().toISOString(),
       })
       .eq('id', id)
 
