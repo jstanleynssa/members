@@ -69,12 +69,8 @@ export async function getServerSideProps(context) {
     best_attempt: attemptsByQuiz[q.id] || null
   }))
 
-  // Sort: active first (newest→oldest), then inactive (newest→oldest)
-  enrichedQuizzes.sort((a, b) => {
-    if (a.active && !b.active) return -1
-    if (!a.active && b.active) return 1
-    return new Date(b.call_date) - new Date(a.call_date)
-  })
+  // Sort purely by date, newest first — placeholders stay in their natural position
+  enrichedQuizzes.sort((a, b) => new Date(b.call_date) - new Date(a.call_date))
 
   return {
     props: {

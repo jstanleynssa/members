@@ -287,7 +287,7 @@ export default function Dashboard({ member, subs, selectedYear, availableYears, 
           }}>
             <div>
               <p style={{ fontWeight: 600, color: '#111', margin: '0 0 4px', fontSize: '14px' }}>
-                🎬 Watch Recorded Session Replays
+                Watch Recorded Session Replays
               </p>
               <p style={{ fontSize: '13px', color: GRAY.text, margin: 0 }}>
                 Missed a live call? Watch the replay, pass a short quiz, and earn 1 CE hour.
