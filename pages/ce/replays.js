@@ -107,7 +107,7 @@ export default function Replays({ quizzes, userEmail }) {
         {/* Title */}
         <div style={{ marginBottom: '1.75rem' }}>
           <h1 style={{ fontSize: '1.4rem', fontWeight: 700, color: '#111', marginBottom: '6px' }}>
-            🎬 Recorded Session Replays
+            Recorded Session Replays
           </h1>
           <p style={{ fontSize: '14px', color: GRAY.text, margin: 0 }}>
             Watch a recorded member call, answer 5 questions, and earn 1 CE hour — same credit as attending live.
