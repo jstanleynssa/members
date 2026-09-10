@@ -215,21 +215,58 @@ export default function ReplayQuiz({ quiz, already_credited, userEmail }) {
           </div>
         )}
 
-        {/* Recording embed (16:9, full width) */}
-        <div style={{
-          position: 'relative', width: '100%', paddingBottom: '56.25%',
-          marginBottom: '2rem', background: '#000', borderRadius: '10px', overflow: 'hidden'
-        }}>
-          <iframe
-            src={quiz.recording_url}
-            title={quiz.title}
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-            allowFullScreen
-            style={{
-              position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', border: 'none'
-            }}
-          />
-        </div>
+        {/* Recording — YouTube embed or external link */}
+        {(() => {
+          const url = quiz.recording_url || ''
+          const ytMatch = url.match(/(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([\w-]{11})/)
+          const embedUrl = ytMatch ? `https://www.youtube.com/embed/${ytMatch[1]}` : null
+
+          if (embedUrl) {
+            return (
+              <div style={{
+                position: 'relative', width: '100%', paddingBottom: '56.25%',
+                marginBottom: '2rem', background: '#000', borderRadius: '10px', overflow: 'hidden'
+              }}>
+                <iframe
+                  src={embedUrl}
+                  title={quiz.title}
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  allowFullScreen
+                  style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', border: 'none' }}
+                />
+              </div>
+            )
+          }
+
+          return (
+            <div style={{
+              marginBottom: '2rem', background: '#13405E', borderRadius: '10px',
+              padding: '2.5rem 2rem', textAlign: 'center'
+            }}>
+              <p style={{ fontSize: '14px', color: '#8ECAEE', margin: '0 0 6px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                Session Recording
+              </p>
+              <p style={{ fontSize: '16px', fontWeight: 700, color: 'white', margin: '0 0 20px' }}>
+                {quiz.title}
+              </p>
+              <a
+                href={url}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  display: 'inline-block', padding: '11px 28px',
+                  background: '#1C80BC', color: 'white', borderRadius: '8px',
+                  fontSize: '14px', fontWeight: 600, textDecoration: 'none'
+                }}
+              >
+                ▶ Watch Recording →
+              </a>
+              <p style={{ fontSize: '12px', color: '#8ECAEE', margin: '14px 0 0', opacity: 0.8 }}>
+                Opens in a new tab — then return here to take the quiz.
+              </p>
+            </div>
+          )
+        })()}
 
         {/* Quiz section */}
         <div style={{ background: 'white', borderRadius: '10px', border: `1px solid ${GRAY.border}`, padding: '2rem' }}>
