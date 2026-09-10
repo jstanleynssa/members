@@ -50,6 +50,17 @@ export async function getServerSideProps(context) {
     .eq('active', true)
     .single()
 
+  // Fetch adjacent quizzes for prev/next navigation (ordered newest first)
+  const { data: allQuizzes } = await supabase
+    .from('replay_quizzes')
+    .select('id, title, call_date')
+    .eq('active', true)
+    .order('call_date', { ascending: false })
+
+  const currentIndex = (allQuizzes || []).findIndex(q => q.id === id)
+  const prevQuiz = currentIndex > 0 ? allQuizzes[currentIndex - 1] : null
+  const nextQuiz = currentIndex < (allQuizzes?.length ?? 0) - 1 ? allQuizzes[currentIndex + 1] : null
+
   if (error || !quiz) return { notFound: true }
 
   // Sanitize questions — strip correct answers before sending to client
@@ -80,7 +91,9 @@ export async function getServerSideProps(context) {
         questions: sanitizedQuestions
       },
       already_credited: !!existingCredit,
-      userEmail: email
+      userEmail: email,
+      prevQuiz: prevQuiz ? { id: prevQuiz.id, title: prevQuiz.title } : null,
+      nextQuiz: nextQuiz ? { id: nextQuiz.id, title: nextQuiz.title } : null,
     }
   }
 }
@@ -92,7 +105,7 @@ function formatDate(dateStr) {
   })
 }
 
-export default function ReplayQuiz({ quiz, already_credited, userEmail }) {
+export default function ReplayQuiz({ quiz, already_credited, userEmail, prevQuiz, nextQuiz }) {
   const [answers, setAnswers] = useState({})
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState(null)  // { score, passed, correct_answers, ce_credited, already_credited }
@@ -187,6 +200,48 @@ export default function ReplayQuiz({ quiz, already_credited, userEmail }) {
           </Link>
           <img src="/nssa-irmaa-logos.png" alt="NSSA and IRMAACP logos" style={{ height: '44px', width: 'auto' }} />
         </div>
+
+        {/* Prev / Next navigation */}
+        {(prevQuiz || nextQuiz) && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.25rem', gap: '12px' }}>
+            <div style={{ flex: 1 }}>
+              {nextQuiz && (
+                <Link href={`/ce/replay/${nextQuiz.id}`} style={{ textDecoration: 'none' }}>
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: '8px',
+                    padding: '10px 14px', borderRadius: '8px',
+                    border: `1px solid ${GRAY.border}`, background: 'white',
+                    color: GRAY.text, fontSize: '13px', cursor: 'pointer'
+                  }}>
+                    <span style={{ fontSize: '16px' }}>←</span>
+                    <div>
+                      <div style={{ fontSize: '11px', color: GRAY.text, opacity: 0.7, marginBottom: '1px' }}>Older session</div>
+                      <div style={{ fontWeight: 600, color: '#374151', lineHeight: 1.3 }}>{nextQuiz.title}</div>
+                    </div>
+                  </div>
+                </Link>
+              )}
+            </div>
+            <div style={{ flex: 1, display: 'flex', justifyContent: 'flex-end' }}>
+              {prevQuiz && (
+                <Link href={`/ce/replay/${prevQuiz.id}`} style={{ textDecoration: 'none', width: '100%' }}>
+                  <div style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '8px',
+                    padding: '10px 14px', borderRadius: '8px',
+                    border: `1px solid ${GRAY.border}`, background: 'white',
+                    color: GRAY.text, fontSize: '13px', cursor: 'pointer'
+                  }}>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: '11px', color: GRAY.text, opacity: 0.7, marginBottom: '1px' }}>Newer session</div>
+                      <div style={{ fontWeight: 600, color: '#374151', lineHeight: 1.3 }}>{prevQuiz.title}</div>
+                    </div>
+                    <span style={{ fontSize: '16px' }}>→</span>
+                  </div>
+                </Link>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Title */}
         <h1 style={{ fontSize: '1.35rem', fontWeight: 700, color: '#111', marginBottom: '4px' }}>
