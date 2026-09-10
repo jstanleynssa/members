@@ -68,7 +68,17 @@ export default async function handler(req, res) {
   const email = participant?.email
   if (!email) return res.status(200).json({ ok: true, skipped: 'no email' })
 
-  const sessionDuration = participant?.duration || 0 // seconds for this session
+  // participant_left does not include a duration field — compute from timestamps instead.
+  // Using leave_time - meeting.start_time gives time-in-meeting from the host's perspective;
+  // it slightly overestimates for late joiners but is correct for the 40-min threshold.
+  // Reconnects are handled naturally: a later leave_time always produces a larger offset.
+  const leaveMs = participant?.leave_time
+    ? new Date(participant.leave_time).getTime()
+    : body.event_ts || Date.now()
+  const meetingStartMs = meeting?.start_time ? new Date(meeting.start_time).getTime() : 0
+  const sessionDuration = meetingStartMs > 0
+    ? Math.max(0, Math.floor((leaveMs - meetingStartMs) / 1000))
+    : 0
   const meetingUuid = meeting?.uuid // unique per monthly occurrence (used for deduplication)
   const meetingDate = new Date(meeting?.start_time).toISOString().split('T')[0]
   const currentYear = new Date(meeting?.start_time).getFullYear()
@@ -117,7 +127,11 @@ export default async function handler(req, res) {
     .eq('zoom_meeting_id', meetingUuid)
     .maybeSingle()
 
-  const totalDuration = (existing?.zoom_duration_seconds || 0) + sessionDuration
+  // Don't accumulate — use the latest leave_time offset as the authoritative duration.
+  // If a participant reconnects and leaves again, the larger offset wins automatically.
+  const totalDuration = existing
+    ? Math.max(existing.zoom_duration_seconds || 0, sessionDuration)
+    : sessionDuration
   const qualifies = totalDuration >= MIN_DURATION_SECONDS
 
   console.log(`[zoom-webhook] ${email} total duration: ${totalDuration}s, qualifies: ${qualifies}`)
