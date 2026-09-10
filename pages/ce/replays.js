@@ -31,11 +31,10 @@ export async function getServerSideProps(context) {
     return { redirect: { destination: '/login?error=not_authorized', permanent: false } }
   }
 
-  // Fetch active quizzes
+  // Fetch all quizzes — active ones are playable; inactive ones show as placeholders
   const { data: quizzes } = await supabase
     .from('replay_quizzes')
-    .select('id, title, call_date, description, pass_threshold, designation')
-    .eq('active', true)
+    .select('id, title, call_date, description, pass_threshold, designation, active')
     .order('call_date', { ascending: false })
 
   // Find which quizzes this member has CE credit for
@@ -69,6 +68,13 @@ export async function getServerSideProps(context) {
     credited: creditedQuizIds.has(q.id),
     best_attempt: attemptsByQuiz[q.id] || null
   }))
+
+  // Sort: active first (newest→oldest), then inactive (newest→oldest)
+  enrichedQuizzes.sort((a, b) => {
+    if (a.active && !b.active) return -1
+    if (!a.active && b.active) return 1
+    return new Date(b.call_date) - new Date(a.call_date)
+  })
 
   return {
     props: {
@@ -116,7 +122,9 @@ export default function Replays({ quizzes, userEmail }) {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             {quizzes.map(quiz => (
-              <QuizCard key={quiz.id} quiz={quiz} />
+              quiz.active
+                ? <QuizCard key={quiz.id} quiz={quiz} />
+                : <PlaceholderCard key={quiz.id} quiz={quiz} />
             ))}
           </div>
         )}
@@ -126,6 +134,53 @@ export default function Replays({ quizzes, userEmail }) {
           Need to earn more CE hours?{' '}
           <Link href="/ce/submit" style={{ color: NSSA.medium, textDecoration: 'none' }}>Submit external CE →</Link>
         </p>
+      </div>
+    </div>
+  )
+}
+
+function PlaceholderCard({ quiz }) {
+  return (
+    <div style={{
+      background: '#fafafa',
+      borderRadius: '10px',
+      border: `1px solid ${GRAY.border}`,
+      padding: '1.5rem',
+      display: 'flex', alignItems: 'flex-start',
+      gap: '1.25rem', justifyContent: 'space-between', flexWrap: 'wrap',
+      opacity: 0.65
+    }}>
+      <div style={{ flex: 1, minWidth: '200px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', marginBottom: '6px' }}>
+          <h2 style={{ fontSize: '15px', fontWeight: 600, color: GRAY.text, margin: 0 }}>
+            {quiz.title}
+          </h2>
+          <span style={{
+            fontSize: '12px', padding: '3px 10px', borderRadius: '99px',
+            background: GRAY.bg, color: GRAY.text, border: `1px solid ${GRAY.border}`,
+            fontWeight: 500
+          }}>
+            Not available
+          </span>
+        </div>
+        <p style={{ fontSize: '12px', color: GRAY.text, margin: '0 0 8px' }}>
+          {formatDate(quiz.call_date)}
+        </p>
+        {quiz.description && (
+          <p style={{ fontSize: '13px', color: GRAY.text, margin: 0, lineHeight: 1.6, fontStyle: 'italic' }}>
+            {quiz.description}
+          </p>
+        )}
+      </div>
+      <div style={{ flexShrink: 0 }}>
+        <span style={{
+          display: 'inline-block', padding: '10px 20px',
+          background: GRAY.bg, color: GRAY.text,
+          borderRadius: '7px', fontSize: '13px', fontWeight: 600,
+          border: `1px solid ${GRAY.border}`, cursor: 'not-allowed'
+        }}>
+          Not available
+        </span>
       </div>
     </div>
   )
