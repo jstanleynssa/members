@@ -126,7 +126,11 @@ export default async function handler(req, res) {
     designation = nssaHours >= 4 ? 'IRMAA' : 'NSSA'
   }
 
-  const completionDate = new Date().toISOString().split('T')[0]
+  // Use the quiz's call_date as completion_date so monthly_call_key resolves to
+  // the correct month (e.g. 202608 for August), not the month the quiz was taken.
+  // Without this, members who complete a past-month replay in a later month get a
+  // monthly_call_key collision with any CE already earned in that later month.
+  const completionDate = quiz.call_date ? quiz.call_date.split('T')[0] : new Date().toISOString().split('T')[0]
   const courseTitle = `Replay: ${quiz.title}`
 
   // Insert CE submission
