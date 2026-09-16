@@ -671,6 +671,10 @@ function BuildWizard({ member, userEmail, certLabel }) {
     if (s === 1) {
       if (form.zip && !/^\d{5}$/.test(form.zip.trim())) return 'Zip must be 5 digits (e.g. 75001).'
     }
+    if (s === 3) {
+      if (!form.bio.trim()) return 'Please add a bio before continuing — it\'s required for your directory listing.'
+      if (form.bio.trim().length < BIO_MIN) return `Your bio is a bit short (${form.bio.trim().length} of ${BIO_MIN} characters recommended). Add a little more and you'll be set.`
+    }
     return null
   }
 
@@ -955,6 +959,7 @@ function BuildWizard({ member, userEmail, certLabel }) {
               <div><strong>Location:</strong> {[form.city, form.state].filter(Boolean).join(', ')}{form.zip ? ` ${form.zip}` : ''}</div>
               {form.phone && <div><strong>Phone:</strong> {form.phone}</div>}
               {form.website && <div><strong>Website:</strong> {form.website}</div>}
+              {form.linkedin_url && <div><strong>LinkedIn:</strong> {form.linkedin_url}</div>}
               <div><strong>Photo:</strong> {currentPhoto ? 'Added ✓' : 'Not added'}</div>
             </div>
           </div>
@@ -985,9 +990,21 @@ function BuildWizard({ member, userEmail, certLabel }) {
       {/* Navigation */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '2rem', paddingTop: '1.25rem', borderTop: `1px solid ${GRAY.bg}` }}>
         <button type="button" onClick={back} disabled={step === 0 || saving} style={{ ...btnS, visibility: step === 0 ? 'hidden' : 'visible' }}>← Back</button>
-        {step < WIZARD_STEPS.length - 1
-          ? <button type="button" onClick={next} disabled={saving} style={btnP(saving)}>{saving ? 'Saving…' : 'Save & Continue →'}</button>
-          : <button type="button" onClick={finish} disabled={saving} style={btnP(saving)}>{saving ? 'Finishing…' : 'Finish & Create Profile'}</button>}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          {/* Photo step: offer a skip path so the primary CTA doesn't compete with onPhotoSaved auto-advance */}
+          {step === 4 && !currentPhoto && (
+            <button type="button" onClick={next} disabled={saving}
+              style={{ background: 'none', border: 'none', fontSize: '13px', color: GRAY.text, cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>
+              Skip for now →
+            </button>
+          )}
+          {step < WIZARD_STEPS.length - 1 && step !== 4 && (
+            <button type="button" onClick={next} disabled={saving} style={btnP(saving)}>{saving ? 'Saving…' : 'Save & Continue →'}</button>
+          )}
+          {step === WIZARD_STEPS.length - 1 && (
+            <button type="button" onClick={finish} disabled={saving} style={btnP(saving)}>{saving ? 'Finishing…' : 'Finish & Create Profile'}</button>
+          )}
+        </div>
       </div>
     </div>
   )

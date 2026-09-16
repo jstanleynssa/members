@@ -34,7 +34,7 @@ export default async function handler(req, res) {
     first_name, last_name, job_title, company,
     address, city, state, zip,
     phone, mobile_phone, website, linkedin_url,
-    bio, financial_disclosure,
+    bio, financial_disclosure, profile_completed,
   } = req.body
 
   // A member can only edit their own row. An admin may target another
@@ -65,6 +65,9 @@ export default async function handler(req, res) {
       website:      normalizeUrl(website),
       linkedin_url: normalizeUrl(linkedin_url),
       bio, financial_disclosure,
+      // Only set profile_completed when the wizard explicitly passes it as true;
+      // undefined (normal edits) leaves the column unchanged.
+      ...(profile_completed === true ? { profile_completed: true } : {}),
     })
     .eq('email', targetEmail)
 
