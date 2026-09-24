@@ -45,7 +45,7 @@ export async function getServerSideProps(context) {
 
   const { data: member } = await supabaseAdmin
     .from('members')
-    .select('email, first_name, last_name, nssa_certified, irmaa_certified, nssa_cert_date, irmaa_cert_date, nssa_number, irmaa_number, profile_photo, job_title, company, address, city, state, zip, phone, mobile_phone, website, linkedin_url, bio, financial_disclosure, is_active')
+    .select('email, first_name, last_name, nssa_certified, irmaa_certified, nssa_cert_date, irmaa_cert_date, nssa_number, irmaa_number, is_active')
     .ilike('email', session.user.email)
     .maybeSingle()
 
@@ -131,14 +131,6 @@ export default function Dashboard({ member, subs, selectedYear, availableYears, 
   const filteredSubs = subs.filter(s => s.year === yearFilter)
   const isAdmin = userEmail === 'jstanley@nssapros.com'
 
-  // ── Profile summary (read-only) ─────────────────────────────────────────
-  // Editing happens at /profile (the canonical editor). The dashboard only
-  // displays a summary, so we just derive what we need to show.
-  const currentPhoto = member.profile_photo || null
-  const bioText = stripHtml(member.bio)
-  // A member "has a profile" once they've added a bio (the directory inclusion
-  // signal). Anyone without one sees the "build your profile" prompt instead.
-  const hasProfile = !!(bioText && bioText.trim())
 
   function statusColor(s) {
     if (s === 'approved') return { bg: NSSA_BG, color: NSSA.medium, border: NSSA.light }
@@ -189,6 +181,35 @@ export default function Dashboard({ member, subs, selectedYear, availableYears, 
             </div>
           </div>
         </div>
+
+        {/* Cert badges + downloads */}
+        {(member.nssa_certified || member.irmaa_certified) && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '1.5rem' }}>
+            {member.nssa_certified && (
+              <span style={{ fontSize: '11px', padding: '4px 12px', borderRadius: '6px', background: NSSA_BG, color: NSSA.medium, border: `1px solid ${NSSA.light}`, fontWeight: 500, whiteSpace: 'nowrap' }}>
+                NSSA® Certified{member.nssa_number ? <> · <strong style={{ fontWeight: 700 }}>#{member.nssa_number}</strong></> : ''}
+              </span>
+            )}
+            {member.nssa_certified && member.nssa_number && (
+              <a href="/api/cert?type=nssa" download style={{ fontSize: '11px', padding: '4px 12px', borderRadius: '6px', background: NSSA_BG, color: NSSA.medium, border: `1px solid ${NSSA.light}`, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px', fontWeight: 500, whiteSpace: 'nowrap' }}>
+                ⬇ Download NSSA® Certificate
+              </a>
+            )}
+            {member.irmaa_certified && (
+              <span style={{ fontSize: '11px', padding: '4px 12px', borderRadius: '6px', background: IRMAA_BG, color: IRMAA.medium, border: `1px solid ${IRMAA.light}`, fontWeight: 500, whiteSpace: 'nowrap' }}>
+                IRMAACP™ Certified{member.irmaa_number ? <> · <strong style={{ fontWeight: 700 }}>#{member.irmaa_number}</strong></> : ''}
+              </span>
+            )}
+            {member.irmaa_certified && member.irmaa_number && (
+              <a href="/api/cert?type=irmaa" download style={{ fontSize: '11px', padding: '4px 12px', borderRadius: '6px', background: IRMAA_BG, color: IRMAA.medium, border: `1px solid ${IRMAA.light}`, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px', fontWeight: 500, whiteSpace: 'nowrap' }}>
+                ⬇ Download IRMAACP™ Certificate
+              </a>
+            )}
+            <a href="/api/good-standing-letter" download style={{ fontSize: '11px', padding: '4px 12px', borderRadius: '6px', background: '#f1f5f9', color: NSSA.dark, border: `1px solid #cbd5e1`, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px', fontWeight: 500, whiteSpace: 'nowrap' }}>
+              📄 Good Standing Letter
+            </a>
+          </div>
+        )}
 
         {/* CE Requirements Header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
@@ -379,131 +400,6 @@ export default function Dashboard({ member, subs, selectedYear, availableYears, 
                   })}
                 </tbody>
               </table>
-            )}
-          </div>
-        </div>
-
-        {/* ── Member Profile (read-only summary) ───────────────────────────
-            Editing lives in the canonical profile editor at /profile (the
-            build-out wizard + Simple Edit, with the upgraded photo flow and
-            likeness-safety check). The dashboard shows a summary only, with a
-            single CTA to that editor — so there is ONE place to edit a profile
-            and no risk of two forms drifting apart. */}
-        <div id="profile" style={{ scrollMarginTop: '1rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
-            <h2 style={{ fontSize: '11px', fontWeight: 600, color: GRAY.text, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-              Member Profile
-            </h2>
-
-            {/* Cert badges + downloads + good standing letter — all on one row */}
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center', justifyContent: 'flex-end' }}>
-              {member.nssa_certified && (
-                <span style={{ fontSize: '11px', padding: '4px 12px', borderRadius: '6px', background: NSSA_BG, color: NSSA.medium, border: `1px solid ${NSSA.light}`, fontWeight: 500, whiteSpace: 'nowrap' }}>
-                  NSSA® Certified{member.nssa_number ? <> · <strong style={{ fontWeight: 700 }}>#{member.nssa_number}</strong></> : ''}
-                </span>
-              )}
-              {member.nssa_certified && member.nssa_number && (
-                <a href="/api/cert?type=nssa" download style={{ fontSize: '11px', padding: '4px 12px', borderRadius: '6px', background: NSSA_BG, color: NSSA.medium, border: `1px solid ${NSSA.light}`, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px', fontWeight: 500, whiteSpace: 'nowrap' }}>
-                  ⬇ Download NSSA® Certificate
-                </a>
-              )}
-              {member.irmaa_certified && (
-                <span style={{ fontSize: '11px', padding: '4px 12px', borderRadius: '6px', background: IRMAA_BG, color: IRMAA.medium, border: `1px solid ${IRMAA.light}`, fontWeight: 500, whiteSpace: 'nowrap' }}>
-                  IRMAACP™ Certified{member.irmaa_number ? <> · <strong style={{ fontWeight: 700 }}>#{member.irmaa_number}</strong></> : ''}
-                </span>
-              )}
-              {member.irmaa_certified && member.irmaa_number && (
-                <a href="/api/cert?type=irmaa" download style={{ fontSize: '11px', padding: '4px 12px', borderRadius: '6px', background: IRMAA_BG, color: IRMAA.medium, border: `1px solid ${IRMAA.light}`, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px', fontWeight: 500, whiteSpace: 'nowrap' }}>
-                  ⬇ Download IRMAACP™ Certificate
-                </a>
-              )}
-              <a href="/api/good-standing-letter" download style={{ fontSize: '11px', padding: '4px 12px', borderRadius: '6px', background: '#f1f5f9', color: NSSA.dark, border: `1px solid #cbd5e1`, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px', fontWeight: 500, whiteSpace: 'nowrap' }}>
-                📄 Good Standing Letter
-              </a>
-            </div>
-          </div>
-
-          <div style={{ background: 'white', borderRadius: '10px', border: `1px solid ${GRAY.border}`, padding: '1.5rem' }}>
-            {hasProfile ? (
-              <>
-                {/* Summary: photo + key details */}
-                <div style={{ display: 'grid', gridTemplateColumns: currentPhoto ? '120px 1fr' : '1fr', gap: '1.5rem', alignItems: 'start' }}>
-                  {currentPhoto && (
-                    <img
-                      src={currentPhoto}
-                      alt="Your profile photo"
-                      style={{ width: '120px', height: '124px', objectFit: 'cover', objectPosition: 'top', borderRadius: '8px', border: `1px solid ${GRAY.border}` }}
-                    />
-                  )}
-                  <div style={{ fontSize: '14px', color: '#374151', lineHeight: 1.8 }}>
-                    <div style={{ fontSize: '17px', fontWeight: 700, color: '#111', marginBottom: '2px' }}>
-                      {[member.first_name, member.last_name].filter(Boolean).join(' ') || '—'}
-                    </div>
-                    {(member.job_title || member.company) && (
-                      <div style={{ color: GRAY.text }}>{[member.job_title, member.company].filter(Boolean).join(', ')}</div>
-                    )}
-                    {(member.city || member.state) && (
-                      <div style={{ color: GRAY.text }}>{[member.city, member.state].filter(Boolean).join(', ')}{member.zip ? ` ${member.zip}` : ''}</div>
-                    )}
-                    {(member.phone || member.mobile_phone) && <div style={{ color: GRAY.text }}>{member.phone || member.mobile_phone}</div>}
-                    {member.website && <div style={{ color: NSSA.medium }}>{member.website.replace(/^https?:\/\//, '')}</div>}
-
-                    {/* Completeness nudges */}
-                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '12px' }}>
-                      {!currentPhoto && (
-                        <span style={{ fontSize: '11px', padding: '3px 10px', borderRadius: '99px', background: IRMAA_BG, color: IRMAA.medium, border: `1px solid ${IRMAA.light}` }}>
-                          Add a headshot — profiles with photos get noticeably more inquiries
-                        </span>
-                      )}
-                      {!bioText && (
-                        <span style={{ fontSize: '11px', padding: '3px 10px', borderRadius: '99px', background: IRMAA_BG, color: IRMAA.medium, border: `1px solid ${IRMAA.light}` }}>
-                          Add a bio to complete your listing
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Bio preview */}
-                {bioText && (
-                  <div style={{ marginTop: '1.25rem', paddingTop: '1.25rem', borderTop: `1px solid ${GRAY.bg}` }}>
-                    <p style={{ fontSize: '11px', fontWeight: 600, color: GRAY.text, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '8px' }}>Bio</p>
-                    <p style={{ fontSize: '13px', color: '#374151', lineHeight: 1.7, margin: 0, display: '-webkit-box', WebkitLineClamp: 4, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-                      {bioText}
-                    </p>
-                  </div>
-                )}
-
-                {/* Financial disclosure preview — shown as it appears at the
-                    bottom of the public profile. Fine-print styling to match. */}
-                {(member.financial_disclosure || '').trim() && (
-                  <div style={{ marginTop: '1.25rem', paddingTop: '1.25rem', borderTop: `1px solid ${GRAY.bg}` }}>
-                    <p style={{ fontSize: '11px', fontWeight: 600, color: GRAY.text, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '8px' }}>Financial Disclosure</p>
-                    <p style={{ fontSize: '12px', color: GRAY.text, lineHeight: 1.6, margin: 0, whiteSpace: 'pre-wrap' }}>
-                      {member.financial_disclosure.trim()}
-                    </p>
-                  </div>
-                )}
-
-                {/* Edit CTA */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '1.5rem', paddingTop: '1.25rem', borderTop: `1px solid ${GRAY.bg}` }}>
-                  <Link href="/profile" style={{ ...btn(NSSA.dark, false), textDecoration: 'none', display: 'inline-block' }}>
-                    Edit Your Profile
-                  </Link>
-                  <span style={{ fontSize: '12px', color: GRAY.text }}>Update your photo, bio, or contact details — changes appear on the directory automatically.</span>
-                </div>
-              </>
-            ) : (
-              /* No profile yet — encourage them into the build-out wizard */
-              <div style={{ textAlign: 'center', padding: '1.5rem 1rem' }}>
-                <p style={{ fontSize: '15px', fontWeight: 600, color: '#111', marginBottom: '6px' }}>You don't have a directory profile yet</p>
-                <p style={{ fontSize: '13px', color: GRAY.text, maxWidth: '440px', margin: '0 auto 1.25rem', lineHeight: 1.6 }}>
-                  Your profile is how clients searching the NSSA® Advisor Directory find and contact you. It takes just a few minutes to build.
-                </p>
-                <Link href="/profile" style={{ ...btn(NSSA.dark, false), textDecoration: 'none', display: 'inline-block' }}>
-                  Build Your Profile
-                </Link>
-              </div>
             )}
           </div>
         </div>
