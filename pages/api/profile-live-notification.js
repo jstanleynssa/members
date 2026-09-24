@@ -10,8 +10,8 @@
 // error; the wizard still sends the advisor to their dashboard.
 
 const RESEND_ENDPOINT = 'https://api.resend.com/emails'
-const FROM = 'NSSA Advisor Directory <directory@updates.nssapros.com>'
-const DIRECTORY = 'https://www.nssapros.com/directory'
+const FROM = 'ARPI Advisor Directory <directory@updates.nssapros.com>'
+const DIRECTORY = 'https://arpinstitute.com/find-an-advisor'
 
 function isEmail(str) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(str || '').trim())
@@ -45,12 +45,12 @@ export default async function handler(req, res) {
       body: JSON.stringify({
         from: FROM,
         to: email,
-        subject: 'Your NSSA Advisor Directory profile is live',
+        subject: 'Your ARPI Advisor Directory profile is live',
         html: `
           <div style="font-family:system-ui,sans-serif;max-width:560px;margin:0 auto;color:#1f2937">
             <h2 style="color:#13405E;font-size:20px;margin-bottom:8px">You're on the directory, ${fname}!</h2>
             <p style="font-size:15px;line-height:1.6">
-              Your profile is now live on the public <strong>NSSA® Advisor Directory</strong>.
+              Your profile is now live on the public <strong>ARPI Advisor Directory</strong>.
               Prospective clients searching for a certified Social Security or Medicare
               planning professional can now find you, view your bio, and contact you directly.
             </p>
@@ -65,7 +65,7 @@ export default async function handler(req, res) {
               updates appear on the directory automatically.
             </p>
             <p style="font-size:13px;color:#6b7280;border-top:1px solid #e5e7eb;padding-top:14px;margin-top:20px">
-              National Social Security Advisors (NSSA®)
+              Advanced Retirement Planning Institute (ARPI)
             </p>
           </div>
         `,
