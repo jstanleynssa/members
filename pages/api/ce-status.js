@@ -3,9 +3,9 @@ import { createClient } from '@supabase/supabase-js'
 export default async function handler(req, res) {
   // Allow CORS from Kajabi / nssapros.com only
   const origin = req.headers.origin || ''
-  const allowed = origin.includes('nssapros.com') || origin.includes('kajabi.com') || origin.includes('kajabipages.com')
+  const allowed = origin.includes('nssapros.com') || origin.includes('arpinstitute.com') || origin.includes('kajabi.com') || origin.includes('kajabipages.com')
   if (allowed) res.setHeader('Access-Control-Allow-Origin', origin)
-  else res.setHeader('Access-Control-Allow-Origin', 'https://www.nssapros.com')
+  else res.setHeader('Access-Control-Allow-Origin', 'https://arpinstitute.com')
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS')
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
 
