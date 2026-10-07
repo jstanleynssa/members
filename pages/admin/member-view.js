@@ -27,7 +27,7 @@ export async function getServerSideProps(context) {
   )
 
   const { data: member } = await supabaseAdmin
-    .from('members').select('*').eq('email', viewEmail).single()
+    .from('members').select('*').ilike('email', viewEmail).maybeSingle()
 
   const { data: subs } = await supabaseAdmin
     .from('ce_submissions').select('*').eq('email', viewEmail)
