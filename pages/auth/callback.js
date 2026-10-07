@@ -8,6 +8,26 @@ export default function AuthCallback() {
 
   useEffect(() => {
     async function handleCallback() {
+      // ── Strategy 0: code= query param (PKCE client-side fallback) ───────────
+      // Server-side exchangeCodeForSession (getServerSideProps) requires the PKCE
+      // code verifier to be in a cookie. If that cookie is missing (different device,
+      // cleared session, or auth-helpers cookie timing), it fails silently and returns
+      // { props: {} }, landing here. Try the exchange client-side instead, where the
+      // verifier lives in localStorage.
+      const urlCode = new URLSearchParams(window.location.search).get('code')
+      if (urlCode) {
+        setStatus('Verifying your link…')
+        const { data, error } = await supabase.auth.exchangeCodeForSession(urlCode)
+        if (!error && data?.session) {
+          window.history.replaceState(null, '', window.location.pathname)
+          router.replace('/dashboard')
+          return
+        }
+        console.error('[callback] client exchangeCodeForSession error:', error?.message)
+        // Code verifier not in localStorage either (cross-device). Fall through to
+        // hash / existing-session / onAuthStateChange strategies.
+      }
+
       // ── Strategy 1: Hash fragment (#access_token=...) from magic link ──────
       const hash = window.location.hash.substring(1)
       if (hash) {
