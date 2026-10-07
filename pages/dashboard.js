@@ -49,10 +49,28 @@ export async function getServerSideProps(context) {
     .ilike('email', session.user.email)
     .maybeSingle()
 
-  // Guard: must be a certified, active member
-  if (!member || (!member.nssa_certified && !member.irmaa_certified)) {
+  // Admin bypass — owner always gets through regardless of member record
+  const ADMIN_EMAIL = 'jstanley@arpinstitute.com'
+  const isAdminUser = session.user.email === ADMIN_EMAIL
+
+  // Guard: must be a certified, active member (admin bypasses)
+  if (!isAdminUser && (!member || (!member.nssa_certified && !member.irmaa_certified))) {
     await supabaseServer.auth.signOut()
     return { redirect: { destination: '/login?error=not_authorized', permanent: false } }
+  }
+
+  // For admin with no member record, provide a minimal placeholder
+  const effectiveMember = member || {
+    email: session.user.email,
+    first_name: 'Jason',
+    last_name: 'Stanley',
+    nssa_certified: true,
+    irmaa_certified: true,
+    is_active: true,
+    nssa_number: null,
+    irmaa_number: null,
+    nssa_cert_date: null,
+    irmaa_cert_date: null,
   }
 
   const selectedYear = parseInt(context.query.year) || new Date().getFullYear()
@@ -92,7 +110,7 @@ export async function getServerSideProps(context) {
 
   return {
     props: {
-      member: JSON.parse(JSON.stringify(member)),
+      member: JSON.parse(JSON.stringify(effectiveMember)),
       subs: JSON.parse(JSON.stringify(subs || [])),
       selectedYear,
       availableYears: years,
