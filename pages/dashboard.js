@@ -91,16 +91,16 @@ export async function getServerSideProps(context) {
   const irmaaHours = yearSubs.filter(s => s.designation === 'IRMAA' || s.designation === 'both').reduce((sum, s) => sum + Number(s.hours_earned), 0)
 
   const certYear = (d) => d ? new Date(d).getFullYear() : null
-  const nssaExempt  = certYear(member.nssa_cert_date)  === selectedYear
-  const irmaaExempt = certYear(member.irmaa_cert_date) === selectedYear
+  const nssaExempt  = certYear(effectiveMember.nssa_cert_date)  === selectedYear
+  const irmaaExempt = certYear(effectiveMember.irmaa_cert_date) === selectedYear
 
-  const nssaStatus = !member.nssa_certified ? 'na'
+  const nssaStatus = !effectiveMember.nssa_certified ? 'na'
     : nssaExempt  ? 'exempt'
     : nssaHours  >= 4 ? 'met'
     : nssaHours  > 0  ? 'progress'
     : 'unstarted'
 
-  const irmaaStatus = !member.irmaa_certified ? 'na'
+  const irmaaStatus = !effectiveMember.irmaa_certified ? 'na'
     : irmaaExempt ? 'exempt'
     : irmaaHours >= 4 ? 'met'
     : irmaaHours > 0  ? 'progress'
