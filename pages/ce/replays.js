@@ -14,7 +14,7 @@ export async function getServerSideProps(context) {
   if (!session) return { redirect: { destination: '/login', permanent: false } }
 
   const email = session.user.email
-  const isAdmin = email === \'jstanley@arpinstitute.com'.toLowerCase()
+  const isAdmin = email === 'jstanley@arpinstitute.com'.toLowerCase()
 
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -30,7 +30,6 @@ export async function getServerSideProps(context) {
 
   if (!isAdmin && (!member || (!member.nssa_certified && !member.irmaa_certified))) {
     return { redirect: { destination: '/login?error=not_authorized', permanent: false } }
-  } }
   }
 
   // Fetch all quizzes — active ones are playable; inactive ones show as placeholders

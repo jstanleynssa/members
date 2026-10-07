@@ -145,7 +145,6 @@ export async function getServerSideProps(context) {
   // (Different case from "no record": they have an account, just no cert yet.)
   if (!isAdmin && !member.nssa_certified && !member.irmaa_certified) {
     return { redirect: { destination: '/dashboard', permanent: false } }
-  } }
   }
 
   // Routing signal: profile_completed marks an advisor who has finished the
