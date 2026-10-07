@@ -1,6 +1,6 @@
 /**
  * /admin/kb-review — Knowledge Base review queue
- * Accessible to: jstanley@nssapros.com (admin) + anyone in kb_reviewers table
+ * Accessible to: jstanley@arpinstitute.com (admin) + anyone in kb_reviewers table
  * Filters: status (in_review / draft / approved / published) + category (all / SS / IRMAA)
  */
 import { createServerSupabaseClient } from '@supabase/auth-helpers-nextjs'
@@ -20,7 +20,7 @@ const STATUS_COLORS = {
   retired:    { bg: '#F3F4F6', text: '#6B7280', label: 'Retired' },
 }
 
-const ADMIN_EMAIL = 'jstanley@nssapros.com'
+const ADMIN_EMAIL = 'jstanley@arpinstitute.com'
 
 export async function getServerSideProps(context) {
   const supabaseServer = createServerSupabaseClient(context)

@@ -21,7 +21,7 @@ export async function getServerSideProps(context) {
     .eq('id', session.user.id)
     .single()
 
-  const isAdmin = profile?.is_admin === true || session.user.email === 'jstanley@nssapros.com'
+  const isAdmin = profile?.is_admin === true || session.user.email === 'jstanley@arpinstitute.com'
   if (!isAdmin) return { redirect: { destination: '/dashboard', permanent: false } }
 
   const { data: members } = await supabaseAdmin

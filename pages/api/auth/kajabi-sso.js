@@ -9,6 +9,10 @@ export default async function handler(req, res) {
   const email = (req.query.email || '').trim().toLowerCase()
   if (!email) return res.redirect('/login')
 
+  // Optional deep-link target — must be an internal path (starts with /)
+  const rawNext = (req.query.next || '').trim()
+  const next = rawNext.startsWith('/') ? rawNext : null
+
   // Verify they're a certified member
   const { data: member } = await supabase
     .from('members')
@@ -23,7 +27,10 @@ export default async function handler(req, res) {
     type: 'magiclink',
     email,
     options: {
-      redirectTo: 'https://members.nssapros.com/auth/callback'
+      // Pass ?next= through so the callback can deep-link after auth.
+      // next is sanitized to only allow internal paths (starts with /).
+      redirectTo: 'https://members.arpinstitute.com/auth/callback' +
+        (next ? '?next=' + encodeURIComponent(next) : '')
     }
   })
 

@@ -15,7 +15,7 @@ export default async function handler(req, res) {
   const supabaseServer = createServerSupabaseClient({ req, res })
   const { data: { session } } = await supabaseServer.auth.getSession()
   if (!session) return res.status(401).json({ error: 'Not authenticated' })
-  if (session.user.email !== 'jstanley@nssapros.com') return res.status(403).json({ error: 'Not authorized' })
+  if (session.user.email !== 'jstanley@arpinstitute.com') return res.status(403).json({ error: 'Not authorized' })
 
   const { id, action, notes, approved_by } = req.body
   if (!id || !action) return res.status(400).json({ error: 'id and action required' })

@@ -76,7 +76,11 @@ export async function getServerSideProps(context) {
     const { createServerSupabaseClient } = await import('@supabase/auth-helpers-nextjs')
     const supabase = createServerSupabaseClient(context)
     const { error } = await supabase.auth.exchangeCodeForSession(query.code)
-    if (!error) return { redirect: { destination: '/dashboard', permanent: false } }
+    if (!error) {
+      // Honor ?next= deep-link from kajabi-sso; fall back to dashboard.
+      const next = typeof query.next === 'string' && query.next.startsWith('/') ? query.next : '/dashboard'
+      return { redirect: { destination: next, permanent: false } }
+    }
   }
   return { props: {} }
 }

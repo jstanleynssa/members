@@ -14,7 +14,7 @@ export async function getServerSideProps(context) {
   const { data: { session } } = await supabaseServer.auth.getSession()
   if (!session) return { redirect: { destination: '/login', permanent: false } }
 
-  const isAdmin = session.user.email === 'jstanley@nssapros.com'
+  const isAdmin = session.user.email === 'jstanley@arpinstitute.com'
   if (!isAdmin) return { redirect: { destination: '/dashboard', permanent: false } }
 
   const viewEmail    = context.query.email || ''

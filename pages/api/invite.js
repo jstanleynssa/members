@@ -116,7 +116,7 @@ export default async function handler(req, res) {
   // ── 4. Send the invitation email (house style) ─────────────────────────────
   try {
     await resend.emails.send({
-      from: 'NSSA Member Portal <noreply@updates.nssapros.com>',
+      from: 'ARPI Member Portal <noreply@updates.arpinstitute.com>',
       to: email,
       subject: 'Create your professional directory listing',
       html: `

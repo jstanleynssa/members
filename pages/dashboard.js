@@ -129,7 +129,7 @@ export default function Dashboard({ member, subs, selectedYear, availableYears, 
   const [yearFilter, setYearFilter] = useState(selectedYear)
 
   const filteredSubs = subs.filter(s => s.year === yearFilter)
-  const isAdmin = userEmail === 'jstanley@nssapros.com'
+  const isAdmin = userEmail === 'jstanley@arpinstitute.com'
 
 
   function statusColor(s) {

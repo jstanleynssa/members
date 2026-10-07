@@ -16,7 +16,7 @@ const NSSA = { light: '#8ECAEE', medium: '#1C80BC', dark: '#13405E' }
 const IRMAA = { light: '#ED8E8E', medium: '#DE5B63', dark: '#AF2A35' }
 const GRAY = { text: '#6b7280', bg: '#f3f4f6', border: '#e5e7eb' }
 
-const ADMIN_EMAIL = 'jstanley@nssapros.com'
+const ADMIN_EMAIL = 'jstanley@arpinstitute.com'
 
 export async function getServerSideProps(context) {
   const supabaseServer = createServerSupabaseClient(context)

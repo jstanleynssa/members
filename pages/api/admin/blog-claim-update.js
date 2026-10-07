@@ -1,7 +1,7 @@
 import { createServerSupabaseClient } from '@supabase/auth-helpers-nextjs'
 import { createClient } from '@supabase/supabase-js'
 
-const ADMIN_EMAIL = 'jstanley@nssapros.com'
+const ADMIN_EMAIL = 'jstanley@arpinstitute.com'
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end()

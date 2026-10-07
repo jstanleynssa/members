@@ -7,7 +7,7 @@
 // session, exactly like invite.js is gated for the Zap.
 //
 // House style matches ce-confirmation.js and invite.js: navy bar, #1C80BC links,
-// sender "NSSA Member Portal <noreply@updates.nssapros.com>".
+// sender "ARPI Member Portal <noreply@updates.arpinstitute.com>".
 //
 // Request body (from the cron function):
 //   { submissions: [ { email, first_name, course_title, hours_earned,
@@ -155,7 +155,7 @@ export default async function handler(req, res) {
       const html = buildHtml(rows[0].first_name, rows, progress, year, daysLeft)
 
       await resend.emails.send({
-        from: 'NSSA Member Portal <noreply@updates.nssapros.com>',
+        from: 'ARPI Member Portal <noreply@updates.arpinstitute.com>',
         to: email,
         subject,
         html,

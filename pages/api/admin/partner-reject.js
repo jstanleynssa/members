@@ -8,7 +8,7 @@ export default async function handler(req, res) {
   // Auth gate
   const supabaseServer = createServerSupabaseClient({ req, res })
   const { data: { session } } = await supabaseServer.auth.getSession()
-  if (!session || session.user.email !== 'jstanley@nssapros.com') {
+  if (!session || session.user.email !== 'jstanley@arpinstitute.com') {
     return res.status(403).json({ error: 'Forbidden' })
   }
 

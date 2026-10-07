@@ -35,11 +35,12 @@ export default async function handler(req, res) {
     address, city, state, zip,
     phone, mobile_phone, website, linkedin_url,
     bio, financial_disclosure, profile_completed,
+    directory_opt_out,
   } = req.body
 
   // A member can only edit their own row. An admin may target another
   // member explicitly via body.email; everyone else is pinned to their session.
-  const isAdmin = session.user.email === 'jstanley@nssapros.com'
+  const isAdmin = session.user.email === 'jstanley@arpinstitute.com'
   const targetEmail =
     isAdmin && req.body.email ? req.body.email : session.user.email
 
@@ -65,6 +66,7 @@ export default async function handler(req, res) {
       website:      normalizeUrl(website),
       linkedin_url: normalizeUrl(linkedin_url),
       bio, financial_disclosure,
+      directory_opt_out: directory_opt_out === true || directory_opt_out === 'true',
       // Only set profile_completed when the wizard explicitly passes it as true;
       // undefined (normal edits) leaves the column unchanged.
       ...(profile_completed === true ? { profile_completed: true } : {}),

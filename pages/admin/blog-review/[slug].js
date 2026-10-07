@@ -1,7 +1,7 @@
 /**
  * /admin/blog-review/[slug] — Per-post claim review
  * Shows all extracted claims with verdicts + controls to resolve them.
- * Admin only: jstanley@nssapros.com
+ * Admin only: jstanley@arpinstitute.com
  */
 import { createServerSupabaseClient } from '@supabase/auth-helpers-nextjs'
 import { createClient } from '@supabase/supabase-js'
@@ -9,7 +9,7 @@ import Link from 'next/link'
 import { useState } from 'react'
 import { useRouter } from 'next/router'
 
-const ADMIN_EMAIL = 'jstanley@nssapros.com'
+const ADMIN_EMAIL = 'jstanley@arpinstitute.com'
 
 const VERDICT = {
   verified:    { bg: '#D1FAE5', text: '#065F46',  label: 'Verified',    icon: '✅' },

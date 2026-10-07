@@ -2,14 +2,14 @@
  * /admin/blog-review — Blog content review queue
  * Shows all 170 posts with claim verification verdicts.
  * Allows filtering by blocker status and updating triage bucket.
- * Admin only: jstanley@nssapros.com
+ * Admin only: jstanley@arpinstitute.com
  */
 import { createServerSupabaseClient } from '@supabase/auth-helpers-nextjs'
 import { createClient } from '@supabase/supabase-js'
 import Link from 'next/link'
 import { useState } from 'react'
 
-const ADMIN_EMAIL = 'jstanley@nssapros.com'
+const ADMIN_EMAIL = 'jstanley@arpinstitute.com'
 
 const VERDICT_COLORS = {
   verified:    { bg: '#D1FAE5', text: '#065F46' },

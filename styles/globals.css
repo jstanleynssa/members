@@ -1,0 +1,10 @@
+/* Global reset — removes the browser's default body margin so the
+   nav bar (and all other full-width elements) sit flush with the edges. */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+}

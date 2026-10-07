@@ -1,7 +1,7 @@
 // pages/api/profile-live-notification.js  (MEMBERS app)
 // Sends a one-time "your directory profile is live" confirmation email to an
 // advisor right after they finish the build-out wizard. Uses Resend's REST API
-// (no SDK), sending from the verified updates.nssapros.com domain — same setup
+// (no SDK), sending from the verified updates.arpinstitute.com domain — same setup
 // as the directory's contact-advisor route.
 //
 // Design note: this is best-effort. The caller (finish() in profile.js) must
@@ -10,7 +10,7 @@
 // error; the wizard still sends the advisor to their dashboard.
 
 const RESEND_ENDPOINT = 'https://api.resend.com/emails'
-const FROM = 'ARPI Advisor Directory <directory@updates.nssapros.com>'
+const FROM = 'ARPI Advisor Directory <directory@updates.arpinstitute.com>'
 const DIRECTORY = 'https://arpinstitute.com/find-an-advisor'
 
 function isEmail(str) {

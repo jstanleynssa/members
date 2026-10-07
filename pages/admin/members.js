@@ -17,7 +17,7 @@ export async function getServerSideProps(context) {
     process.env.SUPABASE_SERVICE_ROLE_KEY
   )
 
-  const isAdmin = session.user.email === 'jstanley@nssapros.com'
+  const isAdmin = session.user.email === 'jstanley@arpinstitute.com'
   if (!isAdmin) return { redirect: { destination: '/dashboard', permanent: false } }
 
   const selectedYear = parseInt(context.query.year) || new Date().getFullYear()

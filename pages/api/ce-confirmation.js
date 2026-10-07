@@ -43,7 +43,7 @@ export default async function handler(req, res) {
 
   try {
     await resend.emails.send({
-      from: 'NSSA Member Portal <noreply@updates.nssapros.com>',
+      from: 'ARPI Member Portal <noreply@updates.arpinstitute.com>',
       to: email,
       subject: `CE Submission Received — ${courseTitle}`,
       html: `

@@ -1,5 +1,93 @@
 import { createClient } from '@supabase/supabase-js'
 
+const KAJABI_API   = 'https://api.kajabi.com/v1'
+const KAJABI_TOKEN = 'https://api.kajabi.com/v1/oauth/token'
+
+// Membership offer IDs whose active_until = annual dues renewal
+const MEMBERSHIP_OFFER_IDS = new Set([2149702553, 2150711684, 2150754803])
+
+// Returns { duesRenewalDate: 'YYYY-MM-DD' | null, isLifetime: bool }
+// fetch with a hard timeout so Kajabi API slowness never hangs the endpoint
+async function fetchWithTimeout(url, options, ms) {
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), ms)
+  try {
+    const res = await fetch(url, { ...options, signal: ctrl.signal })
+    clearTimeout(timer)
+    return res
+  } catch (e) {
+    clearTimeout(timer)
+    throw e
+  }
+}
+
+// Returns { duesRenewalDate: 'YYYY-MM-DD' | null, isLifetime: bool }
+async function getKajabiMemberData(email) {
+  try {
+    // 1. OAuth token — 4s timeout
+    const params = new URLSearchParams()
+    params.append('grant_type',    'client_credentials')
+    params.append('client_id',     process.env.KAJABI_CLIENT_ID)
+    params.append('client_secret', process.env.KAJABI_CLIENT_SECRET)
+    const tokenRes = await fetchWithTimeout(KAJABI_TOKEN, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params.toString(),
+    }, 4000)
+    if (!tokenRes.ok) return { duesRenewalDate: null, isLifetime: false }
+    const { access_token } = await tokenRes.json()
+    const headers = {
+      'Authorization': `Bearer ***}`,
+      'Accept': 'application/vnd.api+json',
+    }
+
+    // 2. Find contact by email — 4s timeout
+    const contactRes = await fetchWithTimeout(
+      `${KAJABI_API}/contacts?filter[email]=${encodeURIComponent(email)}`,
+      { headers }, 4000
+    )
+    if (!contactRes.ok) return { duesRenewalDate: null, isLifetime: false }
+    const contactData = await contactRes.json()
+    const contact = contactData?.data?.[0]
+    if (!contact) return { duesRenewalDate: null, isLifetime: false }
+
+    // 3. Lifetime check — any tag containing 'lifetime' (case-insensitive)
+    const tags = contact.attributes?.tags || []
+    const isLifetime = tags.some(t => /lifetime/i.test(String(t)))
+    if (isLifetime) return { duesRenewalDate: null, isLifetime: true }
+
+    // 4. Purchases — 4s timeout, filter client-side (Kajabi filter bug)
+    const purchasesRes = await fetchWithTimeout(
+      `${KAJABI_API}/purchases?filter[contact_id]=${contact.id}`,
+      { headers }, 4000
+    )
+    if (!purchasesRes.ok) return { duesRenewalDate: null, isLifetime: false }
+    const purchasesData = await purchasesRes.json()
+
+    const today = new Date()
+    let best = null
+    for (const p of purchasesData?.data || []) {
+      const offerId = Number(p.attributes?.offer_id || p.relationships?.offer?.data?.id)
+      const until = p.attributes?.active_until
+      if (!until) continue
+      const d = new Date(until)
+      if (d <= today) continue
+      if (MEMBERSHIP_OFFER_IDS.has(offerId) && (!best || d > best)) best = d
+    }
+    if (!best) {
+      for (const p of purchasesData?.data || []) {
+        const until = p.attributes?.active_until
+        if (!until) continue
+        const d = new Date(until)
+        if (d > today && (!best || d > best)) best = d
+      }
+    }
+    return { duesRenewalDate: best ? best.toISOString().slice(0, 10) : null, isLifetime: false }
+  } catch (e) {
+    return { duesRenewalDate: null, isLifetime: false }
+  }
+}
+
 export default async function handler(req, res) {
   // Allow CORS from Kajabi / nssapros.com only
   const origin = req.headers.origin || ''
@@ -32,7 +120,9 @@ export default async function handler(req, res) {
     .single()
 
   if (!member) {
+    // found: false signals the Kajabi block to hide itself entirely
     return res.status(200).json({
+      found: false,
       email,
       nssaCertified: false,
       irmaaCertified: false,
@@ -70,12 +160,20 @@ export default async function handler(req, res) {
   const nssaMet = !member.nssa_certified ? true : (nssaExempt || nssaHours >= 4)
   const irmaaMet = !member.irmaa_certified ? true : (irmaaExempt || irmaaHours >= 4)
 
+  // Fetch dues/lifetime data from Kajabi — non-blocking
+  const kajabiData = await getKajabiMemberData(email).catch(() => ({ duesRenewalDate: null, isLifetime: false }))
+  const { duesRenewalDate, isLifetime } = kajabiData
+
   // Cache for 5 minutes
   res.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate=60')
 
   return res.status(200).json({
+    found: true,
     email,
-    firstName: member.first_name || '',
+    firstName:  member.first_name  || '',
+    lastName:   member.last_name   || '',
+    duesRenewalDate: duesRenewalDate || null,
+    isLifetime: isLifetime || false,
     nssaCertified: !!member.nssa_certified,
     irmaaCertified: !!member.irmaa_certified,
     nssaHours: nssaExempt ? 4 : nssaHours,
