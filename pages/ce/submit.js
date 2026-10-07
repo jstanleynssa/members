@@ -13,6 +13,8 @@ export async function getServerSideProps(context) {
   const { data: { session } } = await supabaseServer.auth.getSession()
   if (!session) return { redirect: { destination: '/login', permanent: false } }
 
+  const isAdmin = session.user.email === 'jstanley@arpinstitute.com'
+
   const { data: member } = await supabaseServer
     .from('members')
     .select('first_name, last_name, email, nssa_certified, irmaa_certified')

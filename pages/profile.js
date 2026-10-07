@@ -143,8 +143,9 @@ export async function getServerSideProps(context) {
 
   // Cert guard — a member record exists but isn't certified for either program.
   // (Different case from "no record": they have an account, just no cert yet.)
-  if (!member.nssa_certified && !member.irmaa_certified) {
+  if (!isAdmin && !member.nssa_certified && !member.irmaa_certified) {
     return { redirect: { destination: '/dashboard', permanent: false } }
+  } }
   }
 
   // Routing signal: profile_completed marks an advisor who has finished the
